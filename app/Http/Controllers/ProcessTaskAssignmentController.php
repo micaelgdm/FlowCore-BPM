@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ProcessDefinition;
 use App\Models\ProcessGroup;
+use App\Models\User;
 use App\Models\AuditEvent;
 use DOMDocument;
 use Illuminate\Http\RedirectResponse;
@@ -14,13 +15,23 @@ use Illuminate\View\View;
 
 class ProcessTaskAssignmentController extends Controller
 {
-    public function edit(ProcessDefinition $process): View
+    public function edit(ProcessDefinition $process): View|RedirectResponse
     {
-        abort_unless($process->status === 'draft', 409, 'As equipes só podem ser configuradas antes da publicação.');
+        if ($process->status !== 'draft') {
+            $message = $process->is_active
+                ? 'Esta versão publicada é somente leitura. Crie uma nova versão para editar as equipes e os formulários das etapas.'
+                : 'Esta versão publicada é somente leitura. Ative a versão desejada e crie uma nova versão para editar as equipes.';
+
+            return redirect()->route('master.processes.editor', $process)->with('status', $message);
+        }
 
         $postedAssignments = collect(old('assignments', []))
             ->filter(fn ($assignment): bool => is_array($assignment) && is_string($assignment['task_id'] ?? null))
-            ->mapWithKeys(fn (array $assignment): array => [$assignment['task_id'] => (int) ($assignment['group_id'] ?? 0)])
+            ->mapWithKeys(fn (array $assignment): array => [$assignment['task_id'] => [
+                'type' => $assignment['type'] ?? 'group',
+                'group_id' => (int) ($assignment['group_id'] ?? 0),
+                'user_id' => (int) ($assignment['user_id'] ?? 0),
+            ]])
             ->all();
         $postedTaskForms = collect(old('task_forms', []))
             ->filter(fn ($taskForm): bool => is_array($taskForm) && is_string($taskForm['task_id'] ?? null))
@@ -37,7 +48,18 @@ class ProcessTaskAssignmentController extends Controller
             'userTasks' => self::userTasks($process->bpmn_xml ?? ''),
             'gatewayBranches' => self::exclusiveGateways($process->bpmn_xml ?? ''),
             'groups' => ProcessGroup::query()->orderBy('name')->get(),
-            'assignments' => session()->hasOldInput('assignments') ? $postedAssignments : ($process->task_group_assignments ?? []),
+            'users' => User::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']),
+            'assignments' => session()->hasOldInput('assignments')
+                ? $postedAssignments
+                : collect($userTasks = self::userTasks($process->bpmn_xml ?? ''))->mapWithKeys(function ($task, string $taskId) use ($process): array {
+                    $groupId = $process->task_group_assignments[$taskId] ?? null;
+                    $userId = $process->task_user_assignments[$taskId] ?? null;
+                    return [$taskId => [
+                        'type' => $userId ? 'user' : 'group',
+                        'group_id' => (int) ($groupId ?? 0),
+                        'user_id' => (int) ($userId ?? 0),
+                    ]];
+                })->all(),
             'taskForms' => session()->hasOldInput('task_forms') ? $postedTaskForms : ($process->task_form_schemas ?? []),
             'gatewayRoutes' => session()->hasOldInput('gateway_routes') ? $postedGatewayRoutes : ($process->gateway_routes ?? []),
         ]);
@@ -52,7 +74,9 @@ class ProcessTaskAssignmentController extends Controller
         $validator = Validator::make($request->all(), [
             'assignments' => ['nullable', 'array', 'max:100'],
             'assignments.*.task_id' => ['required', 'string', 'distinct', 'max:255'],
-            'assignments.*.group_id' => ['required', 'integer', 'exists:process_groups,id'],
+            'assignments.*.type' => ['required', 'in:group,user'],
+            'assignments.*.group_id' => ['nullable', 'integer'],
+            'assignments.*.user_id' => ['nullable', 'integer'],
             'task_forms' => ['nullable', 'array', 'max:100'],
             'task_forms.*.task_id' => ['required', 'string', 'distinct', 'max:255'],
             'task_forms.*.kind' => ['required', 'in:work,approval'],
@@ -86,8 +110,21 @@ class ProcessTaskAssignmentController extends Controller
             }
 
             foreach ($userTasks as $taskId => $task) {
-                if (! $assignments->has($taskId)) {
-                    $validator->errors()->add("assignments.{$taskId}", "Escolha um grupo para a tarefa ‘{$task['name']}’.");
+                $assignment = $assignments->get($taskId);
+                if (! is_array($assignment)) {
+                    $validator->errors()->add("assignments.{$taskId}", "Escolha um responsável para a tarefa ‘{$task['name']}’.");
+                } elseif (($assignment['type'] ?? null) === 'group') {
+                    if (! filled($assignment['group_id'] ?? null)) {
+                        $validator->errors()->add("assignments.{$taskId}.group_id", "Escolha um grupo para a tarefa ‘{$task['name']}’.");
+                    } elseif (! ProcessGroup::query()->whereKey($assignment['group_id'])->exists()) {
+                        $validator->errors()->add("assignments.{$taskId}.group_id", "O grupo escolhido para ‘{$task['name']}’ não existe mais.");
+                    }
+                } elseif (($assignment['type'] ?? null) === 'user') {
+                    if (! filled($assignment['user_id'] ?? null)) {
+                        $validator->errors()->add("assignments.{$taskId}.user_id", "Escolha um usuário para a tarefa ‘{$task['name']}’.");
+                    } elseif (! User::query()->whereKey($assignment['user_id'])->where('is_active', true)->exists()) {
+                        $validator->errors()->add("assignments.{$taskId}.user_id", "O usuário escolhido para ‘{$task['name']}’ está inativo ou não existe mais.");
+                    }
                 }
 
                 if (! $taskForms->has($taskId)) {
@@ -176,9 +213,15 @@ class ProcessTaskAssignmentController extends Controller
         });
 
         $data = $validator->validate();
-        $assignments = collect($data['assignments'] ?? [])->mapWithKeys(fn (array $assignment): array => [
-            $assignment['task_id'] => (int) $assignment['group_id'],
-        ])->all();
+        $groupAssignments = [];
+        $userAssignments = [];
+        foreach ($data['assignments'] ?? [] as $assignment) {
+            if (($assignment['type'] ?? 'group') === 'user') {
+                $userAssignments[$assignment['task_id']] = (int) $assignment['user_id'];
+            } else {
+                $groupAssignments[$assignment['task_id']] = (int) $assignment['group_id'];
+            }
+        }
         $taskForms = collect($data['task_forms'] ?? [])->mapWithKeys(function (array $taskForm): array {
             $fields = collect($taskForm['fields'] ?? [])->map(function (array $field): array {
                 $normalized = [
@@ -212,11 +255,13 @@ class ProcessTaskAssignmentController extends Controller
         })->all();
         $previousConfiguration = [
             'task_group_assignments' => $process->task_group_assignments ?? [],
+            'task_user_assignments' => $process->task_user_assignments ?? [],
             'task_form_schemas' => $process->task_form_schemas ?? [],
             'gateway_routes' => $process->gateway_routes ?? [],
         ];
         $nextConfiguration = [
-            'task_group_assignments' => $assignments,
+            'task_group_assignments' => $groupAssignments,
+            'task_user_assignments' => $userAssignments,
             'task_form_schemas' => $taskForms,
             'gateway_routes' => $gatewayRoutes,
         ];
@@ -239,7 +284,7 @@ class ProcessTaskAssignmentController extends Controller
             }
         });
 
-        return redirect()->route('master.processes.tasks.edit', $process)->with('status', 'Grupos, formulários e saídas salvos. Publique o rascunho para usar esta configuração.');
+        return redirect()->route('master.processes.tasks.edit', $process)->with('status', 'Responsáveis, formulários e saídas salvos. Publique o rascunho para usar esta configuração.');
     }
 
     /** @return array<string, array{id: string, name: string, documentation: string}> */

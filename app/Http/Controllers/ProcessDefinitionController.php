@@ -109,6 +109,7 @@ class ProcessDefinitionController extends Controller
                 'bpmn_xml' => $source->bpmn_xml,
                 'form_schema' => $source->form_schema,
                 'task_group_assignments' => $source->task_group_assignments,
+                'task_user_assignments' => $source->task_user_assignments,
                 'task_form_schemas' => $source->task_form_schemas,
                 'gateway_routes' => $source->gateway_routes,
                 'created_by' => $request->user()->id,
@@ -273,10 +274,11 @@ class ProcessDefinitionController extends Controller
             return DB::transaction(function () use ($request, $process, $flowable): JsonResponse {
                 $locked = ProcessDefinition::query()->lockForUpdate()->findOrFail($process->id);
                 $taskGroupAssignments = $locked->task_group_assignments ?? [];
+                $taskUserAssignments = $locked->task_user_assignments ?? [];
                 $taskFormSchemas = $locked->task_form_schemas ?? [];
                 $groupsById = ProcessGroup::query()->whereIn('id', array_values($taskGroupAssignments))->get()->keyBy('id');
                 $gatewayRoutes = $locked->gateway_routes ?? [];
-                $preparedXml = $this->prepareBpmnForPublication($locked->bpmn_xml ?? '', $locked->id, $taskGroupAssignments, $groupsById->all(), $taskFormSchemas, $gatewayRoutes);
+                $preparedXml = $this->prepareBpmnForPublication($locked->bpmn_xml ?? '', $locked->id, $taskGroupAssignments, $groupsById->all(), $taskFormSchemas, $gatewayRoutes, $taskUserAssignments);
 
                 if ($locked->status === 'published') {
                     if ($locked->published_bpmn_hash === hash('sha256', $preparedXml)) {
@@ -395,7 +397,7 @@ class ProcessDefinitionController extends Controller
         ]);
     }
 
-    private function prepareBpmnForPublication(string $xml, int $processDefinitionId, array $taskGroupAssignments = [], array $groupsById = [], array $taskFormSchemas = [], array $gatewayRoutes = []): string
+    private function prepareBpmnForPublication(string $xml, int $processDefinitionId, array $taskGroupAssignments = [], array $groupsById = [], array $taskFormSchemas = [], array $gatewayRoutes = [], array $taskUserAssignments = []): string
     {
         $document = new DOMDocument();
         $document->resolveExternals = false;
@@ -422,9 +424,10 @@ class ProcessDefinitionController extends Controller
         $process = $processes->item(0);
         $userTasks = $document->getElementsByTagNameNS($namespace, 'userTask');
 
-        if ($taskGroupAssignments !== []) {
-            if ($userTasks->length !== count($taskGroupAssignments)) {
-                throw new FlowablePublicationRejected('Every human task must have a configured group.');
+        if ($taskGroupAssignments !== [] || $taskUserAssignments !== []) {
+            $assignedTaskIds = array_unique(array_merge(array_keys($taskGroupAssignments), array_keys($taskUserAssignments)));
+            if ($userTasks->length !== count($assignedTaskIds)) {
+                throw new FlowablePublicationRejected('Every human task must have a configured group or user.');
             }
 
             if ($userTasks->length !== count($taskFormSchemas)) {
@@ -439,11 +442,13 @@ class ProcessDefinitionController extends Controller
                     continue;
                 }
 
-                $groupId = $taskGroupAssignments[$task->getAttribute('id')] ?? null;
+                $taskId = $task->getAttribute('id');
+                $groupId = $taskGroupAssignments[$taskId] ?? null;
                 $group = is_numeric($groupId) ? ($groupsById[(int) $groupId] ?? null) : null;
+                $userId = $taskUserAssignments[$taskId] ?? null;
 
-                if (! $group) {
-                    throw new FlowablePublicationRejected('A human task refers to a missing group.');
+                if (! $group && ! is_numeric($userId)) {
+                    throw new FlowablePublicationRejected('A human task refers to a missing group or user.');
                 }
 
                 if (! isset($taskFormSchemas[$task->getAttribute('id')]['kind'])) {
@@ -451,7 +456,12 @@ class ProcessDefinitionController extends Controller
                 }
 
                 $task->removeAttributeNS($flowableNamespace, 'assignee');
-                $task->setAttributeNS($flowableNamespace, 'flowable:candidateGroups', $group->flowable_group_id);
+                $task->removeAttributeNS($flowableNamespace, 'candidateGroups');
+                if ($group) {
+                    $task->setAttributeNS($flowableNamespace, 'flowable:candidateGroups', $group->flowable_group_id);
+                } else {
+                    $task->setAttributeNS($flowableNamespace, 'flowable:assignee', PortalProcessController::flowableAssignee((int) $userId));
+                }
 
                 foreach (['humanPerformer', 'potentialOwner'] as $assignmentElement) {
                     foreach (iterator_to_array($task->getElementsByTagNameNS($namespace, $assignmentElement)) as $element) {

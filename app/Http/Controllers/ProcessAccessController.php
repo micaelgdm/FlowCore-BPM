@@ -22,17 +22,21 @@ class ProcessAccessController extends Controller
             ->where('role', '!=', UserRole::Master->value)
             ->orderBy('name')
             ->get();
+        $permissions = $process->authorizedUsers()
+            ->get(['users.id'])
+            ->mapWithKeys(fn (User $user): array => [$user->id => [
+                'can_view' => (bool) $user->pivot->can_view,
+                'can_start' => (bool) $user->pivot->can_start,
+            ]])
+            ->all();
 
         return view('processes.access', [
             'process' => $process,
             'users' => $users,
-            'permissions' => $process->authorizedUsers()
-                ->get(['users.id'])
-                ->mapWithKeys(fn (User $user): array => [$user->id => [
-                    'can_view' => (bool) $user->pivot->can_view,
-                    'can_start' => (bool) $user->pivot->can_start,
-                ]])
-                ->all(),
+            'permissions' => $permissions,
+            'accessibleUserCount' => collect($permissions)
+                ->filter(fn (array $permission): bool => $permission['can_view'] || $permission['can_start'])
+                ->count(),
         ]);
     }
 

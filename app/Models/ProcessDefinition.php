@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Str;
 
-#[Fillable(['name', 'description', 'status', 'is_active', 'version', 'family_uuid', 'bpmn_xml', 'form_schema', 'task_group_assignments', 'task_form_schemas', 'gateway_routes', 'flowable_deployment_id', 'flowable_process_definition_id', 'published_bpmn_hash', 'published_at', 'created_by', 'updated_by'])]
+#[Fillable(['name', 'description', 'status', 'is_active', 'version', 'family_uuid', 'bpmn_xml', 'form_schema', 'task_group_assignments', 'task_user_assignments', 'task_form_schemas', 'gateway_routes', 'flowable_deployment_id', 'flowable_process_definition_id', 'published_bpmn_hash', 'published_at', 'created_by', 'updated_by'])]
 class ProcessDefinition extends Model
 {
     protected static function booted(): void
@@ -25,6 +25,7 @@ class ProcessDefinition extends Model
             'is_active' => 'boolean',
             'form_schema' => 'array',
             'task_group_assignments' => 'array',
+            'task_user_assignments' => 'array',
             'task_form_schemas' => 'array',
             'gateway_routes' => 'array',
         ];

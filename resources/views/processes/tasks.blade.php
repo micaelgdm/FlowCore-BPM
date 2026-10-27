@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Equipes das tarefas · {{ $process->name }} · FlowCore BPM</title>
+    <title>Responsáveis das tarefas · {{ $process->name }} · FlowCore BPM</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="flowcore-page">
@@ -14,32 +14,38 @@
             <div class="fc-header-actions"><a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">Editor</a><a class="fc-button fc-button-secondary" href="{{ route('master.processes.form.edit', $process) }}">Formulário</a><form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form></div>
         </header>
         <main class="fc-list-content">
-            <section class="fc-list-heading"><div><span class="fc-eyebrow">ROTEAMENTO DAS TAREFAS</span><h2>Grupo responsável por etapa</h2><p>Escolha a equipe que receberá cada tarefa humana do BPMN. A configuração será gravada no BPMN ao publicar.</p></div></section>
+            <section class="fc-list-heading"><div><span class="fc-eyebrow">ROTEAMENTO DAS TAREFAS</span><h2>Responsável por etapa</h2><p>Direcione cada tarefa humana para um grupo ou para uma pessoa específica. A configuração será gravada no BPMN ao publicar.</p></div></section>
             @if (session('status')) <div class="fc-flash-success" role="status">{{ session('status') }}</div> @endif
             @if ($errors->any()) <div class="fc-login-error" role="alert">{{ $errors->first() }}</div> @endif
-            @if (count($groups) === 0)
-                <div class="fc-empty-state"><strong>Cadastre os grupos primeiro</strong><span>Crie os grupos Fiscal, Contabilidade, Compras e outros antes de configurar o encaminhamento.</span><a class="fc-button fc-button-primary" href="{{ route('master.groups.index') }}">Abrir grupos</a></div>
-            @elseif (count($userTasks) === 0)
+            @if (count($userTasks) === 0)
                 <div class="fc-empty-state"><strong>Nenhuma tarefa humana encontrada</strong><span>Adicione ao menos uma Tarefa de Usuário ao diagrama e salve o rascunho antes de configurar equipes.</span><a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">Voltar ao editor</a></div>
+            @elseif (count($groups) === 0 && count($users) === 0)
+                <div class="fc-empty-state"><strong>Nenhum responsável disponível</strong><span>Cadastre um grupo ou ative ao menos um usuário antes de configurar o roteamento.</span><a class="fc-button fc-button-primary" href="{{ route('master.groups.index') }}">Abrir grupos</a></div>
             @else
                 <form method="POST" action="{{ route('master.processes.tasks.update', $process) }}" class="fc-task-assignment-form">
                     @csrf @method('PUT')
                     @foreach ($userTasks as $taskId => $task)
                     @php($taskIndex = $loop->index)
                     @php($taskForm = $taskForms[$taskId] ?? ['kind' => 'work', 'fields' => []])
-                    @php($assignedGroup = $groups->firstWhere('id', (int) ($assignments[$taskId] ?? 0)))
+                    @php($assignment = $assignments[$taskId] ?? ['type' => 'group', 'group_id' => 0, 'user_id' => 0])
+                    @php($assignmentType = $assignment['type'] ?? 'group')
+                    @php($assignedGroup = $groups->firstWhere('id', (int) ($assignment['group_id'] ?? 0)))
+                    @php($assignedUser = $users->firstWhere('id', (int) ($assignment['user_id'] ?? 0)))
+                    @php($assignmentLabel = $assignmentType === 'user' ? ($assignedUser?->name ?? 'Usuário não definido') : ($assignedGroup?->name ?? 'Grupo não definido'))
                     @php($taskKindLabel = ($taskForm['kind'] ?? 'work') === 'approval' ? 'Aprovação' : 'Preenchimento de dados')
                     <details class="fc-task-assignment-card fc-task-config-card fc-task-disclosure">
                         <summary class="fc-task-disclosure-summary">
                             <span class="fc-task-disclosure-title"><span class="fc-eyebrow">TAREFA HUMANA · {{ $taskKindLabel }}</span><strong>{{ $task['name'] }}</strong><code>{{ $taskId }}</code></span>
-                            <span class="fc-task-disclosure-group">{{ $assignedGroup?->name ?? 'Grupo não definido' }}</span>
+                            <span class="fc-task-disclosure-group">{{ $assignmentLabel }}</span>
                             <span class="fc-group-summary-toggle" aria-hidden="true"></span>
                         </summary>
                         <div class="fc-task-disclosure-content">
                         <input type="hidden" name="assignments[{{ $taskIndex }}][task_id]" value="{{ $taskId }}">
                         <input type="hidden" name="task_forms[{{ $taskIndex }}][task_id]" value="{{ $taskId }}">
                         <div class="fc-task-config-fields">
-                            <label class="fc-form-field"><span>Grupo responsável</span><select name="assignments[{{ $taskIndex }}][group_id]" required><option value="">Escolha um grupo</option>@foreach ($groups as $group)<option value="{{ $group->id }}" @selected((int) ($assignments[$taskId] ?? 0) === $group->id)>{{ $group->name }}</option>@endforeach</select></label>
+                            <label class="fc-form-field"><span>Tipo de responsável</span><select name="assignments[{{ $taskIndex }}][type]" data-assignment-type><option value="group" @selected($assignmentType === 'group')>Grupo</option><option value="user" @selected($assignmentType === 'user')>Usuário específico</option></select></label>
+                            <label class="fc-form-field" data-assignment-group @if ($assignmentType !== 'group') hidden @endif><span>Grupo responsável</span><select name="assignments[{{ $taskIndex }}][group_id]" data-assignment-value><option value="">Escolha um grupo</option>@foreach ($groups as $group)<option value="{{ $group->id }}" @selected((int) ($assignment['group_id'] ?? 0) === $group->id)>{{ $group->name }}</option>@endforeach</select></label>
+                            <label class="fc-form-field" data-assignment-user @if ($assignmentType !== 'user') hidden @endif><span>Usuário responsável</span><select name="assignments[{{ $taskIndex }}][user_id]" data-assignment-value><option value="">Escolha uma pessoa</option>@foreach ($users as $user)<option value="{{ $user->id }}" @selected((int) ($assignment['user_id'] ?? 0) === $user->id)>{{ $user->name }} · {{ $user->email }}</option>@endforeach</select></label>
                             <label class="fc-form-field"><span>Tipo de etapa</span><select name="task_forms[{{ $taskIndex }}][kind]" required><option value="work" @selected(($taskForm['kind'] ?? 'work') === 'work')>Preenchimento de dados</option><option value="approval" @selected(($taskForm['kind'] ?? 'work') === 'approval')>Aprovação</option></select><small>A aprovação grava a variável BPMN fc_decision para uso em gateways exclusivos.</small></label>
                             <label class="fc-form-field"><span>Prazo da tarefa (horas corridas)</span><input type="number" name="task_forms[{{ $taskIndex }}][sla_hours]" min="1" max="8760" step="1" value="{{ $taskForm['sla_hours'] ?? '' }}" placeholder="Sem prazo"><small>O prazo começa quando a tarefa chega ao grupo. Deixe vazio para não controlar vencimento.</small></label>
                         </div>
@@ -49,7 +55,7 @@
                             <span><strong>Exibir dados anteriores nesta tarefa</strong><small>Mostra ao responsável os campos da solicitação e as respostas já preenchidas nas etapas concluídas.</small></span>
                         </label>
                         <div class="fc-task-form-builder" data-field-builder>
-                            <div class="fc-task-form-heading"><div><strong>Campos desta etapa</strong><small>Esses campos são exibidos somente aos membros do grupo responsável.</small></div><button type="button" data-add-form-field class="fc-button fc-button-secondary">Adicionar campo</button></div>
+                            <div class="fc-task-form-heading"><div><strong>Campos desta etapa</strong><small>Esses campos são exibidos somente ao responsável configurado.</small></div><button type="button" data-add-form-field class="fc-button fc-button-secondary">Adicionar campo</button></div>
                             <div id="task-form-fields-{{ $taskIndex }}" data-form-fields>
                                 @foreach ($taskForm['fields'] ?? [] as $fieldIndex => $field)
                                     @include('processes.partials.form-field', ['field' => $field, 'index' => $fieldIndex, 'namePrefix' => "task_forms[{$taskIndex}][fields]"])

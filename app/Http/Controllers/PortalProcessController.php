@@ -14,6 +14,7 @@ use Illuminate\View\View;
 use App\Models\ProcessDefinition;
 use App\Models\ProcessGroup;
 use App\Models\ProcessInstance;
+use App\Models\User;
 use App\Services\FlowableClient;
 use RuntimeException;
 
@@ -184,18 +185,22 @@ class PortalProcessController extends Controller
                 $assignments = $instance->processDefinition->task_group_assignments ?? [];
                 $groupIds = collect($assignments)->values()->map(fn ($id): int => (int) $id)->filter()->unique()->values();
                 $groups = ProcessGroup::query()->whereIn('id', $groupIds)->get()->keyBy('id');
+                $userAssignments = $instance->processDefinition->task_user_assignments ?? [];
+                $assignedUsers = User::query()->whereIn('id', array_values($userAssignments))->get()->keyBy('id');
 
                 $currentActivities = collect($engineTasks)
                     ->filter(fn (array $task): bool => is_string($task['id'] ?? null))
-                    ->map(function (array $task) use ($assignments, $groups): array {
+                    ->map(function (array $task) use ($assignments, $groups, $userAssignments, $assignedUsers): array {
                         $taskKey = $task['taskDefinitionKey'] ?? null;
                         $groupId = is_string($taskKey) ? ($assignments[$taskKey] ?? null) : null;
                         $group = is_numeric($groupId) ? $groups->get((int) $groupId) : null;
+                        $userId = is_string($taskKey) ? ($userAssignments[$taskKey] ?? null) : null;
+                        $assignedUser = is_numeric($userId) ? $assignedUsers->get((int) $userId) : null;
 
                         return [
                             'name' => $task['name'] ?? 'Atividade em andamento',
-                            'group' => $group?->name,
-                            'state' => filled($task['assignee'] ?? null) ? 'Em atendimento' : 'Aguardando o grupo',
+                            'group' => $group?->name ?? ($assignedUser ? $assignedUser->name : null),
+                            'state' => filled($task['assignee'] ?? null) ? 'Em atendimento' : ($assignedUser ? 'Aguardando usuário' : 'Aguardando o grupo'),
                         ];
                     })
                     ->values()
@@ -235,7 +240,7 @@ class PortalProcessController extends Controller
     private function hasTaskGroupAssignments(ProcessDefinition $process): bool
     {
         $userTasks = ProcessTaskAssignmentController::userTasks($process->bpmn_xml ?? '');
-        $assignments = $process->task_group_assignments ?? [];
+        $assignments = array_merge($process->task_group_assignments ?? [], $process->task_user_assignments ?? []);
 
         if ($userTasks === []) {
             return true;

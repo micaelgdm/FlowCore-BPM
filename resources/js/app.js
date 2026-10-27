@@ -59,6 +59,23 @@ if (document.querySelector('#bpmn-canvas')) {
     import('./bpmn-editor.js').catch((error) => console.error('BPMN editor failed to load:', error));
 }
 
+document.querySelectorAll('[data-assignment-type]').forEach((typeSelect) => {
+    const card = typeSelect.closest('.fc-task-disclosure-content');
+    const groupField = card?.querySelector('[data-assignment-group]');
+    const userField = card?.querySelector('[data-assignment-user]');
+
+    const updateAssignmentFields = () => {
+        const isUser = typeSelect.value === 'user';
+        [[groupField, !isUser], [userField, isUser]].forEach(([wrapper, visible]) => {
+            if (!(wrapper instanceof HTMLElement)) return;
+            wrapper.hidden = !visible;
+        });
+    };
+
+    typeSelect.addEventListener('change', updateAssignmentFields);
+    updateAssignmentFields();
+});
+
 document.querySelectorAll('[data-member-picker]').forEach((picker) => {
     const search = picker.querySelector('[data-member-search]');
     const count = picker.querySelector('[data-member-count]');
@@ -68,6 +85,34 @@ document.querySelectorAll('[data-member-picker]').forEach((picker) => {
     const updateCount = () => {
         const selected = options.filter((option) => option.querySelector('input')?.checked).length;
         count.textContent = `${selected} ${selected === 1 ? 'selecionado' : 'selecionados'}`;
+    };
+
+    search?.addEventListener('input', () => {
+        const query = search.value.trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/\p{Diacritic}/gu, '');
+        let visibleOptions = 0;
+
+        options.forEach((option) => {
+            const text = option.textContent.toLocaleLowerCase('pt-BR').normalize('NFD').replace(/\p{Diacritic}/gu, '');
+            option.hidden = !text.includes(query);
+            if (!option.hidden) visibleOptions += 1;
+        });
+
+        emptyState.hidden = visibleOptions > 0;
+    });
+
+    picker.addEventListener('change', updateCount);
+    updateCount();
+});
+
+document.querySelectorAll('[data-access-picker]').forEach((picker) => {
+    const search = picker.querySelector('[data-access-search]');
+    const count = picker.querySelector('[data-access-count]');
+    const options = [...picker.querySelectorAll('[data-access-option]')];
+    const emptyState = picker.querySelector('[data-access-empty]');
+
+    const updateCount = () => {
+        const selected = options.filter((option) => [...option.querySelectorAll('input[type="checkbox"]')].some((input) => input.checked)).length;
+        count.textContent = `${selected} ${selected === 1 ? 'usuário liberado' : 'usuários liberados'}`;
     };
 
     search?.addEventListener('input', () => {

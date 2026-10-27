@@ -2,9 +2,9 @@
 <fieldset class="fc-form-field-card" data-form-field data-form-index="{{ $index }}">
     <div class="fc-form-field-heading"><strong>Campo do formulário</strong><button type="button" class="fc-button fc-button-secondary" data-remove-field>Remover</button></div>
     <div class="fc-form-field-grid">
-        <label class="fc-form-field"><span>Identificador (sem espaços)</span><input name="{{ $fieldNamePrefix }}[{{ $index }}][key]" value="{{ $field['key'] ?? '' }}" placeholder="centro_custo" required pattern="[a-z][a-z0-9_]{0,49}"><small>Use letras minúsculas, números e _.</small></label>
-        <label class="fc-form-field"><span>Nome exibido</span><input name="{{ $fieldNamePrefix }}[{{ $index }}][label]" value="{{ $field['label'] ?? '' }}" placeholder="Centro de custo" maxlength="100" required></label>
-        <label class="fc-form-field"><span>Tipo de campo</span><select name="{{ $fieldNamePrefix }}[{{ $index }}][type]" data-field-type required>
+        <label class="fc-form-field"><span>Identificador (sem espaços)</span><input name="{{ $fieldNamePrefix }}[{{ $index }}][key]" value="{{ $field['key'] ?? '' }}" placeholder="centro_custo" pattern="[a-z][a-z0-9_]{0,49}"><small>Use letras minúsculas, números e _.</small></label>
+        <label class="fc-form-field"><span>Nome exibido</span><input name="{{ $fieldNamePrefix }}[{{ $index }}][label]" value="{{ $field['label'] ?? '' }}" placeholder="Centro de custo" maxlength="100"></label>
+        <label class="fc-form-field"><span>Tipo de campo</span><select name="{{ $fieldNamePrefix }}[{{ $index }}][type]" data-field-type>
             @foreach (['text' => 'Texto curto', 'textarea' => 'Texto longo', 'number' => 'Número', 'date' => 'Data', 'select' => 'Lista de opções', 'boolean' => 'Sim ou não'] as $value => $label)
                 <option value="{{ $value }}" @selected(($field['type'] ?? 'text') === $value)>{{ $label }}</option>
             @endforeach

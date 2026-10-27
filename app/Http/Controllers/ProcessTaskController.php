@@ -119,15 +119,19 @@ class ProcessTaskController extends Controller
                 if (! $previousDecision && $returnNotice && $instance && is_string($taskKey)) {
                     $expectedFieldKeys = collect($schema['fields'] ?? [])->pluck('key')->filter()->values()->all();
                     $taskGroupId = self::groupIdForTask($instance, $task);
+                    $taskUserId = $instance->processDefinition->task_user_assignments[$taskKey] ?? null;
                     $bestScore = 0;
 
-                    if ($expectedFieldKeys !== [] && $taskGroupId !== null) {
+                    if ($expectedFieldKeys !== [] && ($taskGroupId !== null || $taskUserId !== null)) {
                         foreach ($decisions as $candidate) {
                             $sourceKey = $candidate->task_definition_key;
+                            $sameAssignee = is_string($sourceKey) && ($taskGroupId !== null
+                                ? ($instance->processDefinition->task_group_assignments[$sourceKey] ?? null) == $taskGroupId
+                                : ($instance->processDefinition->task_user_assignments[$sourceKey] ?? null) == $taskUserId);
                             if (! is_string($sourceKey)
                                 || $sourceKey === $taskKey
                                 || $candidate->decision === 'rejected'
-                                || ($instance->processDefinition->task_group_assignments[$sourceKey] ?? null) != $taskGroupId
+                                || ! $sameAssignee
                                 || ($instance->processDefinition->task_form_schemas[$sourceKey]['kind'] ?? 'work') !== 'work') {
                                 continue;
                             }
@@ -538,6 +542,14 @@ class ProcessTaskController extends Controller
     /** @param array<string, mixed> $task */
     public static function userCanAccessTask(ProcessInstance $instance, array $task, User $user): bool
     {
+        $taskKey = $task['taskDefinitionKey'] ?? null;
+        $assignedUserId = is_string($taskKey)
+            ? ($instance->processDefinition->task_user_assignments[$taskKey] ?? null)
+            : null;
+        if (is_numeric($assignedUserId)) {
+            return (int) $assignedUserId === $user->id;
+        }
+
         $groupId = self::groupIdForTask($instance, $task);
 
         if (is_numeric($groupId)) {

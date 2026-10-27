@@ -32,7 +32,7 @@
                                     <small>Versões removidas: {{ collect($event->details['versions'])->map(fn ($version) => 'V'.$version)->join(', ') }}</small>
                                 @endif
                                 @if ($event->action === 'process.tasks.updated' && ! empty($event->details['changed_sections']))
-                                    <small>Alterado: {{ collect($event->details['changed_sections'])->map(fn ($section) => match ($section) { 'task_group_assignments' => 'roteamento de grupos', 'task_form_schemas' => 'formulários e prazos das etapas', 'gateway_routes' => 'saídas dos gateways', default => $section })->join(', ') }}</small>
+                                    <small>Alterado: {{ collect($event->details['changed_sections'])->map(fn ($section) => match ($section) { 'task_group_assignments', 'task_user_assignments' => 'roteamento de responsáveis', 'task_form_schemas' => 'formulários e prazos das etapas', 'gateway_routes' => 'saídas dos gateways', default => $section })->join(', ') }}</small>
                                 @endif
                                 @if ($event->action === 'process.form.updated')
                                     <small>Campos do formulário: {{ count($event->details['fields'] ?? []) }}</small>

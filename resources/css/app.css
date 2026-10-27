@@ -79,6 +79,9 @@
 .fc-access-list { display: grid; gap: 4px; margin-bottom: 18px; }
 .fc-access-user { display: flex; align-items: center; gap: 12px; padding: 12px 6px; border-bottom: 1px solid #edf0f4; cursor: pointer; }
 .fc-access-user-row { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(300px, auto); align-items: center; gap: 18px; padding: 15px 6px; border-bottom: 1px solid #edf0f4; }
+.fc-access-user-list { display: grid; gap: 0; }
+.fc-access-user-list [data-access-option][hidden] { display: none; }
+.fc-access-user-list .fc-access-user-row:last-of-type { border-bottom: 0; }
 .fc-access-identity { display: grid; min-width: 0; gap: 4px; }
 .fc-access-identity strong { font-size: 13px; }
 .fc-access-identity small { color: #7b8798; font-size: 11px; }
@@ -183,6 +186,7 @@
 .fc-task-assignment-card h3 { margin: 5px 0 4px; color: #24344a; font-size: 15px; }
 .fc-task-assignment-card code { color: #7b8798; font-size: 11px; }
 .fc-task-assignment-card .fc-form-field select { width: 100%; min-height: 39px; padding: 8px 10px; border: 1px solid #d5dde8; border-radius: 8px; color: #34445c; background: #fff; font: inherit; font-size: 12px; }
+.fc-task-config-fields [data-assignment-group][hidden], .fc-task-config-fields [data-assignment-user][hidden] { display: none; }
 .fc-task-config-card { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
 .fc-task-config-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .fc-task-form-builder { display: grid; gap: 12px; padding: 16px; border: 1px solid #edf0f4; border-radius: 10px; background: #fbfcfe; }
@@ -629,11 +633,11 @@ html { scroll-behavior: smooth; }
 .fc-login-form .fc-button { width: 100%; margin-top: 12px; }
 .fc-login-footnote { margin-top: 24px; color: #8491a4; font-size: 11px; line-height: 1.65; }
 
-.fc-confirm-dialog { width: min(440px, calc(100vw - 32px)); max-width: none; padding: 0; overflow: visible; border: 0; border-radius: 20px; color: var(--fc-ink); background: transparent; opacity: 0; transform: translateY(8px) scale(.985); transition: opacity .18s ease, transform .18s ease, overlay .18s allow-discrete, display .18s allow-discrete; }
-.fc-confirm-dialog[open] { opacity: 1; transform: translateY(0) scale(1); }
+.fc-confirm-dialog { position: fixed; top: 50%; left: 50%; right: auto; bottom: auto; width: min(440px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); margin: 0; padding: 0; overflow: auto; border: 0; border-radius: 20px; color: var(--fc-ink); background: transparent; opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(.985); transition: opacity .18s ease, transform .18s ease, overlay .18s allow-discrete, display .18s allow-discrete; }
+.fc-confirm-dialog[open] { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 .fc-confirm-dialog::backdrop { background: rgb(19 31 50 / 0%); backdrop-filter: blur(0); transition: background .18s ease, backdrop-filter .18s ease, overlay .18s allow-discrete, display .18s allow-discrete; }
 .fc-confirm-dialog[open]::backdrop { background: rgb(19 31 50 / 42%); backdrop-filter: blur(3px); }
-@starting-style { .fc-confirm-dialog[open] { opacity: 0; transform: translateY(8px) scale(.985); } .fc-confirm-dialog[open]::backdrop { background: rgb(19 31 50 / 0%); } }
+@starting-style { .fc-confirm-dialog[open] { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(.985); } .fc-confirm-dialog[open]::backdrop { background: rgb(19 31 50 / 0%); } }
 .fc-confirm-modal { display: grid; gap: 11px; padding: 28px; border: 1px solid #e4eaf3; border-radius: 20px; background: #fff; box-shadow: 0 28px 70px rgb(15 28 48 / 22%); }
 .fc-confirm-icon { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid #e2eaff; border-radius: 13px; color: #315fe8; background: #f1f5ff; font-size: 18px; font-weight: 700; }
 .fc-confirm-modal h2 { margin: 5px 0 0; color: #21334d; font-size: 19px; letter-spacing: -.03em; }
