@@ -12,6 +12,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use App\Models\ProcessDefinition;
+use App\Models\ProcessGroup;
 use App\Models\ProcessInstance;
 use App\Services\FlowableClient;
 use RuntimeException;
@@ -166,7 +167,7 @@ class PortalProcessController extends Controller
         return redirect()->route('portal.requests.show', $instance->uuid)->with('status', 'Solicitação enviada ao fluxo de aprovação.');
     }
 
-    public function show(Request $request, string $uuid): View
+    public function show(Request $request, string $uuid, FlowableClient $flowable): View
     {
         $instance = ProcessInstance::query()
             ->with(['processDefinition', 'decisions.actor'])
@@ -174,7 +175,42 @@ class PortalProcessController extends Controller
             ->where('started_by', $request->user()->id)
             ->firstOrFail();
 
-        return view('portal.request', compact('instance'));
+        $currentActivities = [];
+        $activityLookupAvailable = $instance->status !== 'running';
+
+        if ($instance->status === 'running' && filled($instance->flowable_process_instance_id)) {
+            try {
+                $engineTasks = $flowable->tasksForProcessInstance($instance->flowable_process_instance_id);
+                $assignments = $instance->processDefinition->task_group_assignments ?? [];
+                $groupIds = collect($assignments)->values()->map(fn ($id): int => (int) $id)->filter()->unique()->values();
+                $groups = ProcessGroup::query()->whereIn('id', $groupIds)->get()->keyBy('id');
+
+                $currentActivities = collect($engineTasks)
+                    ->filter(fn (array $task): bool => is_string($task['id'] ?? null))
+                    ->map(function (array $task) use ($assignments, $groups): array {
+                        $taskKey = $task['taskDefinitionKey'] ?? null;
+                        $groupId = is_string($taskKey) ? ($assignments[$taskKey] ?? null) : null;
+                        $group = is_numeric($groupId) ? $groups->get((int) $groupId) : null;
+
+                        return [
+                            'name' => $task['name'] ?? 'Atividade em andamento',
+                            'group' => $group?->name,
+                            'state' => filled($task['assignee'] ?? null) ? 'Em atendimento' : 'Aguardando o grupo',
+                        ];
+                    })
+                    ->values()
+                    ->all();
+                $activityLookupAvailable = true;
+            } catch (ConnectionException|RequestException|RuntimeException $exception) {
+                report($exception);
+            }
+        }
+
+        return view('portal.request', [
+            'instance' => $instance,
+            'currentActivities' => $currentActivities,
+            'activityLookupAvailable' => $activityLookupAvailable,
+        ]);
     }
 
     private function ensureAccessible(Request $request, ProcessDefinition $process): void

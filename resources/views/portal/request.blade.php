@@ -27,6 +27,27 @@
                     @endif
                 @endforeach
             </dl>
+            <section class="fc-current-activity" aria-labelledby="current-activity-title">
+                <div class="fc-current-activity-heading">
+                    <div><span class="fc-eyebrow">ACOMPANHAMENTO DO FLUXO</span><h3 id="current-activity-title">Onde a solicitação está</h3></div>
+                    @if ($instance->status === 'running') <span class="fc-status-pill is-published">Em andamento</span> @elseif ($instance->status === 'completed') <span class="fc-status-pill is-published">Concluída</span> @endif
+                </div>
+                @if ($instance->status === 'completed')
+                    <div class="fc-current-activity-empty"><strong>Processo concluído</strong><span>Todas as atividades do fluxo foram finalizadas.</span></div>
+                @elseif ($instance->status === 'running' && ! $activityLookupAvailable)
+                    <div class="fc-current-activity-empty is-unavailable"><strong>Etapa atual indisponível</strong><span>Não foi possível consultar o motor agora. Atualize esta página mais tarde; seu histórico continua disponível abaixo.</span></div>
+                @elseif ($currentActivities !== [])
+                    <ol class="fc-current-activity-list">
+                        @foreach ($currentActivities as $activity)
+                            <li><span class="fc-activity-step" aria-hidden="true">{{ $loop->iteration }}</span><span class="fc-activity-copy"><strong>{{ $activity['name'] }}</strong><small>{{ $activity['group'] ? 'Responsável: '.$activity['group'] : 'Responsável definido no fluxo' }}</small></span><span class="fc-activity-state">{{ $activity['state'] }}</span></li>
+                        @endforeach
+                    </ol>
+                @elseif ($instance->status === 'running')
+                    <div class="fc-current-activity-empty"><strong>Fluxo aguardando uma atividade</strong><span>O motor não tem uma tarefa humana pendente neste momento.</span></div>
+                @else
+                    <div class="fc-current-activity-empty is-unavailable"><strong>Não foi possível iniciar</strong><span>O fluxo não chegou a uma atividade.</span></div>
+                @endif
+            </section>
             @if ($instance->decisions->isNotEmpty())
                 <section class="fc-process-list fc-decision-history">
                     <div class="fc-list-title"><h3>Histórico de tarefas</h3><span>{{ $instance->decisions->count() }}</span></div>

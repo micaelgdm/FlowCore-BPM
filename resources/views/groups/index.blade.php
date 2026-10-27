@@ -76,7 +76,7 @@
                                 </details>
                             </fieldset>
                         </form>
-                        <form method="POST" action="{{ route('master.groups.destroy', $group) }}" onsubmit="return confirm('Remover este grupo?')">
+                        <form method="POST" action="{{ route('master.groups.destroy', $group) }}" data-confirm="Remover este grupo?">
                             @csrf @method('DELETE')
                             <button class="fc-button fc-button-danger" type="submit">Remover grupo</button>
                         </form>

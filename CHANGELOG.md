@@ -2,6 +2,8 @@
 
 ## Não lançado
 
+- Repaginada a interface compartilhada com CSS puro, responsividade reforçada, tipografia e espaçamento atualizados, microinterações e confirmações em modal acessível.
+- Adicionado acompanhamento da atividade humana atual e do grupo responsável na página de detalhes da solicitação, incluindo etapas paralelas.
 - Configurada fundação Laravel 13.38.0 e MariaDB 10.11.16.
 - Adicionados login Master, proteção de rotas e listagem/criação de rascunhos.
 - Integrado bpmn-js 18.30.1 com abrir/exportar BPMN e persistência de XML no MariaDB.

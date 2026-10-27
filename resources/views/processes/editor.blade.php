@@ -32,7 +32,7 @@
                     <button id="save-bpmn" class="fc-button fc-button-secondary" type="button">Salvar rascunho</button>
                     <button id="publish-bpmn" class="fc-button fc-button-primary" type="button">Publicar versão</button>
                     @if ($process->version > 1)
-                        <form method="POST" action="{{ route('master.processes.versions.destroy', $process) }}" onsubmit="return confirm('Descartar a versão V{{ $process->version }}? Este rascunho será removido. A versão publicada continuará intacta.')">
+                        <form method="POST" action="{{ route('master.processes.versions.destroy', $process) }}" data-confirm="Descartar a versão V{{ $process->version }}? Este rascunho será removido. A versão publicada continuará intacta.">
                             @csrf @method('DELETE')
                             <button class="fc-button fc-button-danger" type="submit">Descartar versão</button>
                         </form>
@@ -46,7 +46,7 @@
                         </form>
                         <span class="fc-published-pill">Em uso · publicado em {{ $process->published_at?->copy()->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i') }}</span>
                     @else
-                        <form method="POST" action="{{ route('master.processes.activate', $process) }}" onsubmit="return confirm('Ativar V{{ $process->version }} para novas solicitações? As solicitações existentes continuam na versão em que começaram.')">
+                        <form method="POST" action="{{ route('master.processes.activate', $process) }}" data-confirm="Ativar V{{ $process->version }} para novas solicitações? As solicitações existentes continuam na versão em que começaram.">
                             @csrf
                             <button class="fc-button fc-button-primary" type="submit">Ativar esta versão</button>
                         </form>

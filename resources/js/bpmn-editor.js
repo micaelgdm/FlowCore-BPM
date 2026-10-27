@@ -193,7 +193,7 @@ if (canvas) {
 
     const publishButton = document.querySelector('#publish-bpmn');
     publishButton?.addEventListener('click', async () => {
-        if (!window.confirm('Publicar esta versão no motor Flowable? Depois da publicação, o rascunho ficará bloqueado para edição.')) return;
+        if (!await window.flowcoreConfirm('Publicar esta versão no motor Flowable? Depois da publicação, o rascunho ficará bloqueado para edição.')) return;
 
         publishButton.disabled = true;
         setStatus('Salvando o diagrama e publicando no Flowable…');

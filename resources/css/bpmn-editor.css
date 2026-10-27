@@ -129,3 +129,44 @@
     #bpmn-canvas { min-height: calc(100vh - 184px); border-radius: 12px; }
     .fc-right-panel { padding: 20px 16px; border-top: 1px solid #e3e8ef; }
 }
+
+/* Editor visual refresh */
+.fc-editor { background: radial-gradient(ellipse at 48% 0%, #eaf0ff 0, transparent 38rem), #f5f7fb; }
+.fc-editor > .fc-header { min-height: 76px; height: auto; padding-inline: clamp(16px, 2.4vw, 34px); border-bottom-color: rgb(224 231 241 / 86%); background: rgb(255 255 255 / 93%); box-shadow: 0 5px 22px rgb(30 47 76 / 5%); backdrop-filter: blur(16px); }
+.fc-editor .fc-brand-mark { background: linear-gradient(145deg, #4f7cff, #2853d6); box-shadow: 0 6px 14px rgb(49 95 232 / 24%); }
+.fc-editor .fc-header-actions { gap: 6px; }
+.fc-editor .fc-button { min-height: 40px; padding-inline: 13px; border-radius: 11px; font-size: 11px; transition: transform .17s ease, box-shadow .17s ease, background .17s ease, border-color .17s ease; }
+.fc-editor .fc-button:hover:not(:disabled) { transform: translateY(-1px); }
+.fc-editor .fc-button:active:not(:disabled) { transform: scale(.985); }
+.fc-editor .fc-button-primary { background: linear-gradient(135deg, #4775f5, #315fe8); box-shadow: 0 6px 15px rgb(49 95 232 / 18%); }
+.fc-editor .fc-button-danger { color: #a43c40; border-color: #f0d4d3; background: #fff; }
+.fc-editor .fc-main { min-height: calc(100vh - 76px); grid-template-columns: 252px minmax(0, 1fr) 286px; gap: 0; }
+.fc-editor .fc-panel { padding: 25px 20px; border-color: #e3e9f2; background: rgb(255 255 255 / 91%); }
+.fc-editor .fc-panel h2 { margin-top: 10px; color: #1d2d45; font-size: 16px; letter-spacing: -.03em; }
+.fc-editor .fc-panel > p, .fc-editor .fc-note span, .fc-editor .fc-instructions p, .fc-editor .fc-selection-card p { color: #718199; line-height: 1.7; }
+.fc-editor .fc-note, .fc-editor .fc-selection-card { border-color: #e3eaf5; border-radius: 14px; background: #f9fbff; box-shadow: 0 6px 16px rgb(28 47 82 / 4%); }
+.fc-editor .fc-canvas-wrap { padding: clamp(12px, 2vw, 22px); }
+.fc-editor #bpmn-canvas { min-height: 540px; border-color: #e0e7f1; border-radius: 17px; box-shadow: 0 18px 42px rgb(28 47 82 / 8%), 0 2px 7px rgb(28 47 82 / 3%); background-color: #fff; background-image: radial-gradient(#d7e0ef .8px, transparent .8px); background-size: 24px 24px; }
+.fc-editor .fc-canvas-toolbar { min-height: 48px; }
+.fc-editor .fc-zoom-tools { border-color: #dce4ef; border-radius: 11px; box-shadow: 0 3px 9px rgb(28 47 82 / 5%); }
+.fc-editor .fc-zoom-tools button { height: 36px; transition: color .16s ease, background .16s ease; }
+.fc-editor .fc-zoom-tools button:hover { color: #315fe8; background: #f3f6ff; }
+.fc-editor .fc-canvas-status { color: #7788a0; }
+.fc-editor .fc-element-properties-form .fc-form-field input, .fc-editor .fc-element-properties-form .fc-form-field textarea { border-radius: 11px; font-size: 12px; }
+.fc-editor .fc-property-empty { padding: 14px; border: 1px dashed #dbe4f1; border-radius: 13px; background: #fafcff; }
+.fc-editor .fc-property-element-id { padding: 10px 11px; border-radius: 10px; background: #f6f8fc; }
+.fc-editor .fc-editor-flash { margin: 15px clamp(12px, 2vw, 22px) 0; border-radius: 14px; box-shadow: 0 7px 18px rgb(28 47 82 / 5%); }
+.fc-editor .fc-published-pill { border-radius: 11px; }
+@media (max-width: 1080px) {
+    .fc-editor .fc-main { grid-template-columns: 228px minmax(0, 1fr); }
+    .fc-editor .fc-right-panel { grid-column: 1 / -1; border-top: 1px solid #e3e9f2; border-left: 0; }
+}
+@media (max-width: 700px) {
+    .fc-editor > .fc-header { min-height: 68px; padding: 12px 15px; }
+    .fc-editor .fc-header-actions { width: 100%; justify-content: flex-start; overflow-x: auto; flex-wrap: nowrap; padding: 2px 0 4px; scrollbar-width: thin; }
+    .fc-editor .fc-header-actions > * { flex: 0 0 auto; }
+    .fc-editor .fc-main { min-height: calc(100vh - 122px); }
+    .fc-editor .fc-canvas-wrap { min-height: calc(100vh - 122px); padding: 10px; }
+    .fc-editor #bpmn-canvas { min-height: calc(100vh - 190px); border-radius: 14px; }
+    .fc-editor .fc-right-panel { padding: 21px 16px; }
+}

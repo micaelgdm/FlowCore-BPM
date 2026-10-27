@@ -65,7 +65,7 @@
 4. Formulários dinâmicos — versão inicial concluída; avançar validações e associação por etapa.
 5. Aprovações e regras — aprovação, rejeição com retorno configurável à etapa de preenchimento e retorno à aprovação implementados e validados no Flowable para o exemplo; ampliar cenários de execução.
 6. Notificações — contador de tarefas pendentes no portal concluído; avançar canais e alertas adicionais.
-7. Auditoria, prazos, indicadores e recursos corporativos — prazos por tarefa, trilha de auditoria e indicadores básicos de solicitações implementados; avançar métricas de tempo e produtividade.
+7. Auditoria, prazos, indicadores e recursos corporativos — prazos por tarefa, trilha de auditoria, indicadores básicos e acompanhamento da etapa atual pelo solicitante implementados; avançar métricas de tempo e produtividade.
 8. Implantação interna.
 
 ## Ambiente e comandos

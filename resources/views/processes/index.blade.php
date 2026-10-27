@@ -87,12 +87,12 @@
                         </a>
                         <div class="fc-process-row-actions">
                             @if ($process->status === 'published' && ! $isCurrentPublished)
-                                <form method="POST" action="{{ route('master.processes.activate', $process) }}" onsubmit="return confirm('Ativar V{{ $process->version }} para novas solicitações? As solicitações existentes continuam na versão em que começaram.')">
+                                <form method="POST" action="{{ route('master.processes.activate', $process) }}" data-confirm="Ativar V{{ $process->version }} para novas solicitações? As solicitações existentes continuam na versão em que começaram.">
                                     @csrf
                                     <button class="fc-button fc-button-secondary" type="submit" aria-label="Ativar V{{ $process->version }} de {{ $process->name }}">Ativar</button>
                                 </form>
                             @endif
-                            <form method="POST" action="{{ route('master.processes.destroy', $process) }}" class="fc-process-row-delete" onsubmit="return confirm('Excluir permanentemente este processo e todas as versões? A exclusão só prosseguirá se nenhuma versão tiver solicitações ou histórico no Flowable.')">
+                            <form method="POST" action="{{ route('master.processes.destroy', $process) }}" class="fc-process-row-delete" data-confirm="Excluir permanentemente este processo e todas as versões? A exclusão só prosseguirá se nenhuma versão tiver solicitações ou histórico no Flowable.">
                                 @csrf @method('DELETE')
                                 <button class="fc-button fc-button-danger" type="submit" aria-label="Excluir {{ $process->name }} e todas as versões" title="Excluir processo e todas as versões">Excluir</button>
                             </form>
