@@ -1,0 +1,45 @@
+# Changelog
+
+## Não lançado
+
+- Configurada fundação Laravel 13.38.0 e MariaDB 10.11.16.
+- Adicionados login Master, proteção de rotas e listagem/criação de rascunhos.
+- Integrado bpmn-js 18.30.1 com abrir/exportar BPMN e persistência de XML no MariaDB.
+- Adicionadas validações para XML BPMN e testes de autenticação/autorização/salvamento.
+- VirtualHost local configurado para servir apenas `public/`.
+- Criada prova local Flowable 8.0.0/REST com JDK Temurin 17 e Maven portáteis.
+- Validada autenticação local, início e conclusão de tarefa humana e recuperação do histórico no MariaDB dedicado após reinício.
+- Adicionada consulta Laravel autenticada ao catálogo Flowable, protegida por perfil Master e com resposta de indisponibilidade sem expor dados internos.
+- Adicionada publicação de rascunhos no Flowable com gravação de hash/IDs, chave determinística para recuperação sem duplicidade e bloqueio de edição após publicar.
+- Testada integração com o motor local: 13 testes passaram, 52 assertions; publicação real criou uma definição executável no Flowable e uma repetição recuperou a mesma implantação.
+- Fixado Jackson 3.1.7 na prova do Flowable.
+- Incluído cadastro Master de usuários com perfis, ativação e acesso por processo publicado; o portal final não expõe a modelagem.
+- Adicionado construtor inicial de formulários por rascunho, com validação de campos e publicação imutável junto à versão BPMN.
+- Adicionado envio de solicitações autorizadas ao Flowable, persistência das respostas e proteção contra reenvio duplicado pela chave de negócio.
+- Incluídas permissões separadas para visualizar, solicitar e aprovar; fluxos iniciais usam um aprovador individual.
+- Adicionada fila de tarefas Flowable, atribuição de tarefas novas, aprovação com justificativa obrigatória e histórico consultável pelo solicitante.
+- Adicionado cadastro Master de grupos de trabalho com associação de usuários ativos e identificadores persistentes para integração com o Flowable.
+- Adicionada configuração de grupo por tarefa humana, publicação como candidato Flowable, fila de tarefas de grupo, ação de assumir e histórico de conclusão.
+- Adicionados formulários por tarefa, validação no servidor, variáveis separadas por etapa e exibição das respostas no histórico da solicitação.
+- Adicionadas ações de aprovar/rejeitar e configuração de saídas de gateways exclusivos com condições em `fc_decision`.
+- Adicionado retorno de aprovação à tarefa de preenchimento escolhida, com justificativa obrigatória, retorno à etapa de aprovação e registro no histórico.
+- Atualizado o rascunho demonstrativo de Cadastro de Produto com etapas de correção para Fiscal, Contabilidade e Compras.
+- Modernizado o visual compartilhado do portal, páginas Master, formulários e editor BPMN, com estados interativos e refinamentos responsivos.
+- Adicionado versionamento de processos: nova versão cria rascunho independente com formulários, equipes e permissões copiados; o portal mostra apenas a versão publicada mais recente.
+- Validado no Flowable local o caminho paralelo completo: Fiscal/Contabilidade/Compras, devolução para Contabilidade, correção, nova aprovação e encerramento; deployment temporário de validação removido.
+- Liberado resumo somente leitura das respostas anteriores em tarefas configuradas, incluindo a aprovação e o cadastro final.
+- Acrescentada à versão de rascunho do Cadastro de Produto uma tarefa posterior à aprovação, encaminhada ao grupo Cadastro de Produtos para registrar protocolo e observações da ferramenta externa.
+- Build Vite concluído após configurar grupos de tarefas.
+- Simplificados os perfis para Administrador Master e Usuário; início é concedido por processo e tarefas/aprovações são controladas pelo roteamento por grupos. Perfis antigos são migrados, preservando acessos legados em processos já publicados.
+- Adicionada exclusão Master de toda a família de versões, removendo implantações do Flowable sem cascata e bloqueando a ação quando há solicitações locais ou histórico ativo no motor.
+- Corrigido o preenchimento de tarefas de correção para reaproveitar as respostas da etapa original do mesmo grupo e alinhada a exibição de horários ao fuso de São Paulo.
+- Identificada na lista Master a versão publicada em uso de cada família; versões anteriores aparecem como substituídas.
+- Adicionada ativação manual de uma versão publicada anterior para rollback; novas solicitações seguem a versão ativa e instâncias em andamento mantêm sua versão de origem.
+- Incluído contador de tarefas pendentes no link do portal, somando tarefas atribuídas ao usuário e tarefas disponíveis nos grupos de que participa.
+- Adicionado painel de propriedades para editar nomes de tarefas, eventos, gateways e conexões no BPMN, preservando seus identificadores.
+- Adicionadas instruções por tarefa humana no editor BPMN, exibidas ao executor no portal antes do formulário da etapa.
+- Adicionada configuração de prazo em horas corridas por tarefa; a fila destaca o prazo e identifica tarefas vencidas.
+- Criada trilha Master de auditoria para publicação e ativação de versões, com ator, data, processo e versão anterior.
+- Registradas também a exclusão de rascunhos e a exclusão de famílias de processo, preservando os eventos anteriores no histórico.
+- Registradas alterações no formulário inicial, equipes/formulários das etapas, saídas dos gateways e permissões de acesso, com um resumo do que mudou.
+- Adicionados indicadores Master de solicitações totais, em andamento, concluídas e com falha de início, além do detalhamento por família de processo.

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             targetNamespace="https://flowcore.local/bpmn">
+    <process id="flowcoreApprovalDemo" name="Aprovação de teste FlowCore" isExecutable="true">
+        <startEvent id="start" name="Início" />
+        <sequenceFlow id="flowStartApproval" sourceRef="start" targetRef="approval" />
+        <userTask id="approval" name="Aprovar solicitação" />
+        <sequenceFlow id="flowApprovalEnd" sourceRef="approval" targetRef="end" />
+        <endEvent id="end" name="Fim" />
+    </process>
+</definitions>
