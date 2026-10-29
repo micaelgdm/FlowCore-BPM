@@ -69,6 +69,7 @@ if (canvas) {
         'bpmn:StartEvent': 'Evento de início',
         'bpmn:EndEvent': 'Evento de fim',
         'bpmn:ExclusiveGateway': 'Gateway exclusivo',
+        'bpmn:InclusiveGateway': 'Gateway inclusivo',
         'bpmn:ParallelGateway': 'Gateway paralelo',
         'bpmn:SequenceFlow': 'Conexão',
     };
@@ -192,6 +193,7 @@ if (canvas) {
     });
 
     const publishButton = document.querySelector('#publish-bpmn');
+    const publishFeedback = document.querySelector('#publish-feedback');
     publishButton?.addEventListener('click', async () => {
         if (!await window.flowcoreConfirm('Publicar esta versão no motor Flowable? Depois da publicação, o rascunho ficará bloqueado para edição.')) return;
 
@@ -228,6 +230,12 @@ if (canvas) {
             window.location.reload();
         } catch (error) {
             setStatus(`Não foi possível publicar: ${error.message}`, true);
+            if (publishFeedback) {
+                publishFeedback.textContent = `Publicação interrompida. ${error.message}`;
+                publishFeedback.hidden = false;
+                publishFeedback.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                publishFeedback.focus({ preventScroll: true });
+            }
             publishButton.disabled = false;
         }
     });

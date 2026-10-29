@@ -59,6 +59,45 @@ if (document.querySelector('#bpmn-canvas')) {
     import('./bpmn-editor.js').catch((error) => console.error('BPMN editor failed to load:', error));
 }
 
+document.querySelectorAll('[data-conditional-form]').forEach((form) => {
+    const valueFor = (key) => [...form.querySelectorAll('[data-field-value]')]
+        .find((input) => input.dataset.fieldValue === key)?.value ?? '';
+
+    const conditionMatches = ({ field, operator = 'eq', value = '' }) => {
+        const current = valueFor(field);
+        const expected = String(value);
+        if (current === '') return ['neq', 'not_contains'].includes(operator);
+        switch (operator) {
+            case 'neq': return current !== expected;
+            case 'contains': return current.toLocaleLowerCase().includes(expected.toLocaleLowerCase());
+            case 'not_contains': return !current.toLocaleLowerCase().includes(expected.toLocaleLowerCase());
+            default: return current === expected;
+        }
+    };
+
+    const updateConditionalFields = () => {
+        form.querySelectorAll('[data-conditional-field]').forEach((field) => {
+            let condition = {};
+            try { condition = JSON.parse(field.dataset.visibilityCondition || '{}'); } catch { condition = {}; }
+            if (condition.field) {
+                condition = { mode: 'hidden_unless', match: 'all', conditions: [{ field: condition.field, operator: 'eq', value: condition.equals ?? '' }] };
+            }
+            const conditions = Array.isArray(condition.conditions) ? condition.conditions : [];
+            const matches = conditions.map(conditionMatches);
+            const matched = conditions.length === 0 || (condition.match === 'any' ? matches.includes(true) : matches.every(Boolean));
+            const visible = condition.mode === 'shown_unless' ? !matched : condition.mode === 'always' || matched;
+            field.hidden = !visible;
+            field.querySelectorAll('input, select, textarea, button').forEach((control) => {
+                control.disabled = !visible;
+            });
+        });
+    };
+
+    form.addEventListener('input', updateConditionalFields);
+    form.addEventListener('change', updateConditionalFields);
+    updateConditionalFields();
+});
+
 document.querySelectorAll('[data-assignment-type]').forEach((typeSelect) => {
     const card = typeSelect.closest('.fc-task-disclosure-content');
     const groupField = card?.querySelector('[data-assignment-group]');

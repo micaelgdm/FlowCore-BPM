@@ -41,6 +41,22 @@ Na raiz do projeto, inicie o serviço com:
 powershell -ExecutionPolicy Bypass -File .\engine-poc\start.ps1
 ```
 
+Para manter os status das solicitações sincronizados, deixe o agendador Laravel rodando em outro PowerShell:
+
+```powershell
+& 'C:\xamp85\php\php.exe' artisan schedule:work
+```
+
+O agendador verifica até 25 solicitações em andamento por minuto e, a cada cinco minutos, procura tarefas na janela das últimas 24 horas do prazo ou já vencidas. Cada tipo de aviso é enviado uma vez por tarefa e responsável. Em servidor, configure o agendador do sistema operacional para chamar `artisan schedule:run` a cada minuto.
+
+Para processar e-mails enfileirados, deixe também um worker ativo em outro PowerShell:
+
+```powershell
+& 'C:\xamp85\php\php.exe' artisan queue:work --tries=3
+```
+
+O `.env.example` mantém `MAIL_MAILER=log` para desenvolvimento local; nesse modo, o Laravel grava as mensagens no log da aplicação. Para entrega real, configure `MAIL_MAILER=smtp`, `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` e `MAIL_FROM_ADDRESS` no `.env` local. Nunca coloque credenciais SMTP no Git.
+
 A API fica em `http://127.0.0.1:8091/process-api` e exige Basic Auth. O usuário e a senha aleatória estão no arquivo local ignorado `.env.flowable`. O serviço usa a base `flowcore_engine` no MariaDB, com conta dedicada e separada de `flowcore_bpm`. Pressione `Ctrl+C` no terminal para parar o serviço.
 
 A prova implantou o BPMN de exemplo, iniciou o processo, concluiu uma tarefa humana e confirmou o histórico após reiniciar o serviço. A API exige autenticação e responde 401 a chamadas anônimas. O Laravel consulta definições por `GET /master/engine/process-definitions` e publica rascunhos pelo botão **Publicar versão** no editor. O endereço e as credenciais ficam em `.env` (`FLOWABLE_URL`, `FLOWABLE_USER`, `FLOWABLE_PASSWORD`). Cada processo publicado fica imutável até existir fluxo para criar outra versão.

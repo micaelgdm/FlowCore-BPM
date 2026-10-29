@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AuditEventController;
+use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\FlowableController;
+use App\Http\Controllers\NotificationOutboxController;
 use App\Http\Controllers\PortalProcessController;
 use App\Http\Controllers\ProcessAccessController;
 use App\Http\Controllers\ProcessDefinitionController;
@@ -10,6 +12,7 @@ use App\Http\Controllers\ProcessFormController;
 use App\Http\Controllers\ProcessGroupController;
 use App\Http\Controllers\ProcessTaskController;
 use App\Http\Controllers\ProcessTaskAssignmentController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -31,16 +34,25 @@ Route::middleware('guest')->group(function () {
 
 Route::post('/logout', [AuthController::class, 'destroy'])->middleware('auth')->name('logout');
 
+Route::middleware(['auth', 'active'])->group(function () {
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password.update');
+});
+
 Route::middleware(['auth', 'active'])->prefix('portal')->name('portal.')->group(function () {
     Route::get('/processes', [PortalProcessController::class, 'index'])->name('processes.index');
+    Route::get('/requests', [PortalProcessController::class, 'requestsIndex'])->name('requests.index');
     Route::get('/processes/{process}/start', [PortalProcessController::class, 'startForm'])->name('processes.start');
     Route::post('/processes/{process}/start', [PortalProcessController::class, 'start'])->name('processes.start.submit');
     Route::get('/requests/{uuid}', [PortalProcessController::class, 'show'])->name('requests.show');
+    Route::get('/requests/{uuid}/attachments/{attachmentId}', [AttachmentController::class, 'download'])->name('attachments.download');
     Route::get('/tasks', [ProcessTaskController::class, 'index'])->name('tasks.index');
     Route::post('/tasks/{taskId}/approve', [ProcessTaskController::class, 'approve'])->name('tasks.approve');
 });
 
 Route::middleware(['auth', 'master'])->prefix('master')->name('master.')->group(function () {
+    Route::get('/notifications', [NotificationOutboxController::class, 'index'])->name('notifications.index');
+    Route::post('/notifications/{notification}/retry', [NotificationOutboxController::class, 'retry'])->whereNumber('notification')->name('notifications.retry');
     Route::get('/audit', [AuditEventController::class, 'index'])->name('audit.index');
     Route::get('/users', [UserController::class, 'index'])->name('users.index');
     Route::post('/users', [UserController::class, 'store'])->name('users.store');

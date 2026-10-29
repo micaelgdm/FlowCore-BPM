@@ -20,7 +20,7 @@
 - O nome determinístico da implantação combina ID do processo e versão. Em uma repetição após resposta incerta, o Laravel lê o recurso do Flowable e compara o SHA-256 antes de reutilizar a definição existente.
 - Processos publicados não podem ser alterados pelo endpoint de rascunho; o editor passa a usar a visualização BPMN sem controles de edição.
 - `form_schema` guarda, no registro da versão em rascunho, campos permitidos e suas opções. A publicação bloqueia alterações ao diagrama e ao formulário.
-- `process_instances` guarda UUID público, chave de idempotência, iniciador, formulário submetido, estado local e ID da instância Flowable. Usuários consultam somente solicitações que iniciaram.
+- `process_instances` guarda UUID usado nas rotas, código humano `SOL-{id}` para identificação na interface, chave de idempotência, iniciador, formulário submetido, estado local e ID da instância Flowable. Usuários consultam somente solicitações que iniciaram.
 - O Flowable recebe variáveis tipadas e UUID como `businessKey`; antes de criar, a integração procura a chave entre instâncias ativas e no histórico, inclusive para recuperar resposta perdida após conclusão rápida.
 - `process_user_access` separa visualização e início de solicitações. O campo legado `can_approve` é mantido somente para instâncias e definições antigas; novos processos usam os grupos configurados nas etapas.
 - `process_task_decisions` preserva tarefa, ator, decisão, comentário e confirmação do Flowable; o solicitante vê esse histórico em sua própria solicitação.
@@ -29,8 +29,10 @@
 - `process_definitions.task_group_assignments` associa cada ID de tarefa BPMN a um grupo. Na publicação, o Laravel grava esse grupo como `flowable:candidateGroups`; a fila consulta candidatos e permite que um integrante assuma a tarefa.
 - `process_definitions.task_form_schemas` guarda o tipo da etapa (preenchimento ou aprovação) e seus campos. As respostas ficam em `process_task_decisions.form_data` e também são enviadas ao Flowable com nomes de variável únicos por tarefa.
 - O campo `show_process_data` no esquema de uma tarefa autoriza a fila a mostrar, em leitura, os campos das etapas já concluídas. As tarefas de aprovação e cadastro final podem reutilizar o histórico local, sem depender da consulta de variáveis do motor.
-- `process_definitions.gateway_routes` pode associar uma saída exclusiva a `approved`, `rejected`, `default` ou `return:{taskDefinitionKey}`. Ao devolver, o formulário exige destino e justificativa; o Laravel publica condições com `fc_decision` e `fc_return_to`. A tarefa de correção segue seu fluxo BPMN de volta à aprovação.
+- `process_definitions.gateway_routes` pode associar saídas exclusivas ou inclusivas a `approved`, `rejected`, `default` ou `return:{taskDefinitionKey}`. Gateways exclusivos devolvem para uma área; gateways inclusivos permitem selecionar várias áreas e usam uma junção inclusiva para esperar as correções antes de retornar à aprovação. O formulário exige destino(s) e justificativa; o Laravel publica condições com `fc_decision` e `fc_return_to`.
 - `process_definitions.family_uuid` identifica versões da mesma definição e `is_active` indica qual publicação recebe novas solicitações. Publicar uma versão nova a ativa; o Master também pode reativar uma versão publicada anterior. Instâncias em andamento continuam vinculadas à versão original.
+- Solicitações em andamento têm seu status reconciliado ao abrir a lista/detalhes do solicitante e por um comando agendado que verifica 25 por minuto. A reconciliação consulta runtime e, quando necessário, histórico do Flowable; se o motor estiver indisponível ou não confirmar um registro histórico, o estado final local não é inferido. Uma atualização condicional protege contra corrida com a conclusão de uma tarefa.
+- Tarefas humanas novas e decisões de etapa geram registros no outbox `task_notification_outbox`, únicos por tarefa, usuário e tipo de evento. O solicitante recebe avisos para aprovação de etapa, devolução com motivo/destino, rejeição e conclusão. O envio ocorre em jobs assíncronos, com três tentativas; falhas ficam registradas sem interromper a instância. Um comando agendado verifica 25 instâncias por ciclo e envia um aviso ao entrar nas últimas 24 horas e outro se a tarefa vencer. O Master consulta e filtra o outbox e pode reenfileirar falhas. A entrega externa depende de mailer SMTP configurado e de um worker Laravel ativo.
 - `audit_events` registra, com ator e data, publicações, ativações, exclusões e alterações de formulários, roteamento e permissões. A tela é exclusiva do Master; eventos guardam uma cópia do nome do ator e do processo para preservar o histórico após a remoção das definições. Respostas de solicitações não são copiadas para a auditoria administrativa.
 
 ## Dados e segurança implementados
@@ -46,7 +48,7 @@
 
 ## Decisões pendentes
 
-1. Sincronizar o ciclo de vida das instâncias e das tarefas após reinício do motor.
+1. Exibir no painel Master a atualização periódica dos status e ampliar métricas operacionais.
 2. Validar criação e publicação de novas versões junto a permissões herdadas e instâncias ainda em execução.
 3. Expandir permissões para grupos/departamentos e auditar alterações administrativas.
 4. Expandir validação do modelo e editor de propriedades sem permitir execução de código arbitrário.

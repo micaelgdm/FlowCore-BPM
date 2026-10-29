@@ -108,6 +108,8 @@
 .fc-editor .fc-button-danger { color: #a43131; border-color: #f0cccc; background: #fff8f7; }
 .fc-editor .fc-button-danger:hover:not(:disabled) { border-color: #e8b8b6; background: #fff0ee; }
 .fc-editor-flash { position: relative; z-index: 2; margin: 14px 18px 0; padding: 12px 15px; border: 1px solid #ccebd8; border-radius: 12px; color: #17663d; background: #effaf3; font-size: 13px; }
+.fc-editor-flash-error { border-color: #f2c8c5; color: #9f2922; background: #fff3f2; box-shadow: 0 7px 18px rgb(143 35 29 / 8%); }
+.fc-editor-flash[hidden] { display: none !important; }
 .fc-main { min-height: calc(100vh - 74px); grid-template-columns: 248px minmax(0, 1fr) 270px; }
 .fc-panel { background: rgb(255 255 255 / 88%); }
 .fc-panel h2 { color: #20334f; font-size: 16px; letter-spacing: -.025em; }

@@ -2,6 +2,20 @@
 
 ## Não lançado
 
+- Adicionados campos condicionais aos formulários iniciais e das etapas, com condição por valor de campo anterior validada no navegador e no servidor.
+- Adicionados campos de anexo com validação de tipo e tamanho, armazenamento privado e downloads protegidos por permissão da solicitação.
+- Ampliado o painel Master com tempo médio por etapa nos últimos 90 dias e tarefas pendentes/atrasadas agrupadas por equipe responsável.
+- Registrado o horário de início de cada tarefa concluída para calcular sua duração real até a conclusão.
+- Adicionada página Meu perfil para Master e usuários: nome/e-mail somente leitura e troca de senha autenticada com senha atual, confirmação e mínimo de 12 caracteres.
+- Notificado o solicitante por e-mail quando uma etapa de aprovação é concluída, quando a solicitação é devolvida/rejeitada e quando o processo termina; mensagens incluem motivo e destino de correção quando aplicável.
+- Agendados e-mails únicos para tarefas entrando nas últimas 24 horas do prazo e para tarefas vencidas, preservando a execução quando a fila ou o SMTP falha.
+- Criado painel Master do outbox de e-mails com indicadores, busca/filtro de status, histórico paginado e reenvio manual de mensagens com falha.
+- Enfileirados e-mails para usuários responsáveis quando novas tarefas humanas surgem, com outbox deduplicado por tarefa/usuário, tentativas automáticas e registro de falha sem interromper o processo.
+- Adicionado código curto e visível para cada solicitação (`SOL-000123`), exibido na lista do solicitante, nos cartões de tarefas e nos detalhes da execução.
+- Movida a lista de solicitações para uma página própria acessível ao lado de Minhas tarefas, com paginação de 15 itens e filtro automático pelas solicitações do usuário autenticado.
+- Agendada reconciliação do status de solicitações com o Flowable, em lotes incrementais e com proteção contra corrida entre atualização automática e conclusão da tarefa.
+- Reconciliado o status de solicitações em andamento com runtime e histórico do Flowable ao consultar a área do solicitante, incluindo indicação de execução encerrada no motor.
+- Habilitada a devolução simultânea para vários setores em processos com gateways inclusivos e junção inclusiva; páginas de Formulário e Equipes permanecem consultáveis em versões publicadas.
 - Repaginada a interface compartilhada com CSS puro, responsividade reforçada, tipografia e espaçamento atualizados, microinterações e confirmações em modal acessível.
 - Adicionado acompanhamento da atividade humana atual e do grupo responsável na página de detalhes da solicitação, incluindo etapas paralelas.
 - Configurada fundação Laravel 13.38.0 e MariaDB 10.11.16.

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
@@ -16,6 +17,10 @@ use App\Models\ProcessGroup;
 use App\Models\ProcessInstance;
 use App\Models\User;
 use App\Services\FlowableClient;
+use App\Services\TaskAssignmentNotificationService;
+use App\Services\FormAttachmentService;
+use App\Support\FormFieldCondition;
+use Illuminate\Http\UploadedFile;
 use RuntimeException;
 
 class PortalProcessController extends Controller
@@ -40,12 +45,29 @@ class PortalProcessController extends Controller
                 ->where('is_active', true)
                 ->orderBy('name')
                 ->get(),
-            'instances' => $request->user()
-                ->initiatedProcessInstances()
-                ->with('processDefinition')
-                ->latest()
-                ->limit(20)
-                ->get(),
+        ]);
+    }
+
+    public function requestsIndex(Request $request, FlowableClient $flowable): View
+    {
+        $instances = $request->user()
+            ->initiatedProcessInstances()
+            ->with('processDefinition')
+            ->latest()
+            ->paginate(15)
+            ->withQueryString();
+
+        foreach ($instances->getCollection()->where('status', 'running')->take(5) as $instance) {
+            try {
+                $this->synchronizeInstanceStatus($instance, $flowable);
+            } catch (ConnectionException|RequestException|RuntimeException $exception) {
+                report($exception);
+                break;
+            }
+        }
+
+        return view('portal.requests', [
+            'instances' => $instances,
         ]);
     }
 
@@ -61,7 +83,7 @@ class PortalProcessController extends Controller
         ]);
     }
 
-    public function start(Request $request, ProcessDefinition $process, FlowableClient $flowable): RedirectResponse
+    public function start(Request $request, ProcessDefinition $process, FlowableClient $flowable, TaskAssignmentNotificationService $notifications, FormAttachmentService $attachments): RedirectResponse
     {
         $this->ensureCanStart($request, $process);
         abort_unless(is_array($process->form_schema) && count($process->form_schema) > 0, 409, 'Este processo ainda não tem um formulário publicado.');
@@ -72,8 +94,14 @@ class PortalProcessController extends Controller
         abort_unless($legacyApprover || $hasTaskGroups, 409, 'O processo ainda não tem um grupo responsável configurado.');
 
         $rules = ['idempotency_key' => ['required', 'uuid']];
+        $submitted = $request->all();
 
         foreach ($process->form_schema as $field) {
+            if (! FormFieldCondition::isVisible($field, $submitted)) {
+                $rules[$field['key']] = ['prohibited'];
+                continue;
+            }
+
             $presence = ($field['required'] ?? false) ? 'required' : 'nullable';
             $typeRules = match ($field['type']) {
                 'text' => ['string', 'max:2000'],
@@ -82,12 +110,14 @@ class PortalProcessController extends Controller
                 'date' => ['date_format:Y-m-d'],
                 'select' => [Rule::in($field['options'] ?? [])],
                 'boolean' => ['boolean'],
+                'file' => ['file', 'max:10240', 'mimes:pdf,doc,docx,xls,xlsx,csv,txt,jpg,jpeg,png,webp'],
                 default => ['prohibited'],
             };
             $rules[$field['key']] = [$presence, ...$typeRules];
         }
 
         $data = $request->validate($rules);
+        $idempotencyKey = (string) $data['idempotency_key'];
         $formData = [];
 
         foreach ($process->form_schema as $field) {
@@ -97,17 +127,20 @@ class PortalProcessController extends Controller
                 continue;
             }
 
-            $formData[$field['key']] = match ($field['type']) {
+            $formData[$field['key']] = $field['type'] === 'file' && $value instanceof UploadedFile
+                ? $attachments->store($value, "process-{$process->id}-{$idempotencyKey}", $field['key'])
+                : match ($field['type']) {
                 'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'number' => str_contains((string) $value, '.') ? (float) $value : (int) $value,
                 default => $value,
             };
         }
 
-        $idempotencyKey = (string) $data['idempotency_key'];
+        $fileFieldKeys = collect($process->form_schema)->where('type', 'file')->pluck('key')->all();
+        $flowableFormData = collect($formData)->except($fileFieldKeys)->all();
 
         try {
-            $instance = DB::transaction(function () use ($request, $process, $flowable, $legacyApprover, $hasTaskGroups, $idempotencyKey, $formData): ProcessInstance {
+            $instance = DB::transaction(function () use ($request, $process, $flowable, $legacyApprover, $hasTaskGroups, $idempotencyKey, $formData, $flowableFormData): ProcessInstance {
                 $instance = ProcessInstance::query()
                     ->where('idempotency_key', $idempotencyKey)
                     ->lockForUpdate()
@@ -135,7 +168,7 @@ class PortalProcessController extends Controller
                     $started = $flowable->startProcessInstance(
                         $process->flowable_process_definition_id,
                         $idempotencyKey,
-                        $formData,
+                        $flowableFormData,
                     );
                     if (! $hasTaskGroups && $legacyApprover) {
                         $flowable->assignUnassignedTasks($started['process_instance_id'], self::flowableAssignee($legacyApprover->id));
@@ -165,6 +198,12 @@ class PortalProcessController extends Controller
             ]);
         }
 
+        try {
+            $notifications->notifyNewTasks($instance, $flowable);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+
         return redirect()->route('portal.requests.show', $instance->uuid)->with('status', 'Solicitação enviada ao fluxo de aprovação.');
     }
 
@@ -175,6 +214,12 @@ class PortalProcessController extends Controller
             ->where('uuid', $uuid)
             ->where('started_by', $request->user()->id)
             ->firstOrFail();
+
+        try {
+            $this->synchronizeInstanceStatus($instance, $flowable);
+        } catch (ConnectionException|RequestException|RuntimeException $exception) {
+            report($exception);
+        }
 
         $currentActivities = [];
         $activityLookupAvailable = $instance->status !== 'running';
@@ -211,11 +256,49 @@ class PortalProcessController extends Controller
             }
         }
 
+        $decisionHistory = $instance->decisions->map(function ($decision) use ($instance): array {
+            $formData = $decision->form_data ?? [];
+            $returnTaskIds = Arr::wrap($formData['return_to'] ?? []);
+            $availableReturnTasks = ProcessTaskAssignmentController::userTasks($instance->processDefinition->bpmn_xml ?? '');
+
+            return [
+                'decision' => $decision,
+                'field_labels' => collect($instance->processDefinition->task_form_schemas[$decision->task_definition_key]['fields'] ?? [])->keyBy('key'),
+                'return_task' => collect($returnTaskIds)
+                    ->map(fn ($taskId) => $availableReturnTasks[$taskId]['name'] ?? $taskId)
+                    ->filter(fn ($name): bool => is_string($name) && $name !== '')
+                    ->join(', '),
+                'return_task_count' => count($returnTaskIds),
+            ];
+        });
+
         return view('portal.request', [
             'instance' => $instance,
             'currentActivities' => $currentActivities,
             'activityLookupAvailable' => $activityLookupAvailable,
+            'decisionHistory' => $decisionHistory,
         ]);
+    }
+
+    private function synchronizeInstanceStatus(ProcessInstance $instance, FlowableClient $flowable): void
+    {
+        if ($instance->status !== 'running' || blank($instance->flowable_process_instance_id)) {
+            return;
+        }
+
+        $engineStatus = $flowable->processInstanceStatus($instance->flowable_process_instance_id);
+
+        if (in_array($engineStatus, ['running', 'completed', 'cancelled'], true)) {
+            ProcessInstance::query()
+                ->whereKey($instance->id)
+                ->where('status', 'running')
+                ->update([
+                    'status' => $engineStatus,
+                    'flowable_status_checked_at' => now(),
+                ]);
+
+            $instance->refresh();
+        }
     }
 
     private function ensureAccessible(Request $request, ProcessDefinition $process): void

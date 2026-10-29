@@ -6,6 +6,7 @@ use App\Models\ProcessDefinition;
 use App\Models\ProcessGroup;
 use App\Models\User;
 use App\Models\AuditEvent;
+use App\Support\FormVisibilityRule;
 use DOMDocument;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,14 +18,6 @@ class ProcessTaskAssignmentController extends Controller
 {
     public function edit(ProcessDefinition $process): View|RedirectResponse
     {
-        if ($process->status !== 'draft') {
-            $message = $process->is_active
-                ? 'Esta versão publicada é somente leitura. Crie uma nova versão para editar as equipes e os formulários das etapas.'
-                : 'Esta versão publicada é somente leitura. Ative a versão desejada e crie uma nova versão para editar as equipes.';
-
-            return redirect()->route('master.processes.editor', $process)->with('status', $message);
-        }
-
         $postedAssignments = collect(old('assignments', []))
             ->filter(fn ($assignment): bool => is_array($assignment) && is_string($assignment['task_id'] ?? null))
             ->mapWithKeys(fn (array $assignment): array => [$assignment['task_id'] => [
@@ -42,11 +35,14 @@ class ProcessTaskAssignmentController extends Controller
             ->groupBy('gateway_id')
             ->mapWithKeys(fn ($routes, string $gatewayId): array => [$gatewayId => $routes->mapWithKeys(fn (array $route): array => [$route['flow_id'] => $route['outcome'] ?? ''])->all()])
             ->all();
+        $gatewayBranches = self::decisionGateways($process->bpmn_xml ?? '');
 
         return view('processes.tasks', [
             'process' => $process,
+            'readOnly' => $process->status !== 'draft',
             'userTasks' => self::userTasks($process->bpmn_xml ?? ''),
-            'gatewayBranches' => self::exclusiveGateways($process->bpmn_xml ?? ''),
+            'gatewayBranches' => $gatewayBranches,
+            'hasInclusiveGateways' => collect($gatewayBranches)->contains(fn (array $gateway): bool => $gateway['type'] === 'inclusive'),
             'groups' => ProcessGroup::query()->orderBy('name')->get(),
             'users' => User::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']),
             'assignments' => session()->hasOldInput('assignments')
@@ -69,7 +65,7 @@ class ProcessTaskAssignmentController extends Controller
     {
         abort_unless($process->status === 'draft', 409, 'As equipes de uma versão publicada são imutáveis.');
         $userTasks = self::userTasks($process->bpmn_xml ?? '');
-        $gatewayBranches = self::exclusiveGateways($process->bpmn_xml ?? '');
+        $gatewayBranches = self::decisionGateways($process->bpmn_xml ?? '');
 
         $validator = Validator::make($request->all(), [
             'assignments' => ['nullable', 'array', 'max:100'],
@@ -85,9 +81,15 @@ class ProcessTaskAssignmentController extends Controller
             'task_forms.*.fields' => ['nullable', 'array', 'max:30'],
             'task_forms.*.fields.*.key' => ['required', 'string', 'regex:/^[a-z][a-z0-9_]{0,49}$/', 'not_in:idempotency_key,_token,_method'],
             'task_forms.*.fields.*.label' => ['required', 'string', 'max:100'],
-            'task_forms.*.fields.*.type' => ['required', 'in:text,textarea,number,date,select,boolean'],
+            'task_forms.*.fields.*.type' => ['required', 'in:text,textarea,number,date,select,boolean,file'],
             'task_forms.*.fields.*.required' => ['nullable', 'boolean'],
             'task_forms.*.fields.*.options' => ['nullable', 'string', 'max:2000'],
+            'task_forms.*.fields.*.visible_when_mode' => ['nullable', 'in:always,hidden_unless,shown_unless'],
+            'task_forms.*.fields.*.visible_when_match' => ['nullable', 'in:all,any'],
+            'task_forms.*.fields.*.conditions' => ['nullable', 'array', 'max:10'],
+            'task_forms.*.fields.*.conditions.*.field' => ['nullable', 'string', 'max:50'],
+            'task_forms.*.fields.*.conditions.*.operator' => ['nullable', 'in:eq,neq,contains,not_contains'],
+            'task_forms.*.fields.*.conditions.*.value' => ['nullable', 'string', 'max:255'],
             'gateway_routes' => ['nullable', 'array', 'max:100'],
             'gateway_routes.*.gateway_id' => ['required', 'string', 'max:255'],
             'gateway_routes.*.flow_id' => ['required', 'string', 'distinct', 'max:255'],
@@ -134,6 +136,10 @@ class ProcessTaskAssignmentController extends Controller
 
                 $fields = collect($taskForms->get($taskId)['fields'] ?? [])
                     ->filter(fn ($field): bool => is_array($field));
+                $taskFormIndex = collect($request->input('task_forms', []))->search(fn ($taskForm): bool => is_array($taskForm) && ($taskForm['task_id'] ?? null) === $taskId);
+                FormVisibilityRule::validateFields($fields->all(), "task_forms.{$taskFormIndex}.fields", function (string $key, string $message) use ($validator): void {
+                    $validator->errors()->add($key, $message);
+                });
                 if ($fields->pluck('key')->filter()->duplicates()->isNotEmpty()) {
                     $validator->errors()->add("task_forms.{$taskId}.fields", "Os identificadores de campos devem ser únicos dentro da tarefa ‘{$task['name']}’.");
                 }
@@ -236,6 +242,10 @@ class ProcessTaskAssignmentController extends Controller
                     $normalized['options'] = array_values(array_unique(array_map('trim', $options)));
                 }
 
+                if ($condition = FormVisibilityRule::normalize($field)) {
+                    $normalized['visible_when'] = $condition;
+                }
+
                 return $normalized;
             })->values()->all();
 
@@ -324,8 +334,8 @@ class ProcessTaskAssignmentController extends Controller
         return $tasks;
     }
 
-    /** @return array<string, array{id: string, name: string, flows: array<int, array{id: string, name: string}>}> */
-    public static function exclusiveGateways(string $xml): array
+    /** @return array<string, array{id: string, name: string, type: string, flows: array<int, array{id: string, name: string}>}> */
+    public static function decisionGateways(string $xml): array
     {
         $document = new DOMDocument();
         $document->resolveExternals = false;
@@ -356,15 +366,18 @@ class ProcessTaskAssignmentController extends Controller
         }
 
         $gateways = [];
-        foreach ($document->getElementsByTagNameNS($namespace, 'exclusiveGateway') as $gateway) {
-            $gatewayId = $gateway->getAttribute('id');
-            $flows = $flowsByGateway[$gatewayId] ?? [];
-            if ($gatewayId !== '' && count($flows) > 1) {
-                $gateways[$gatewayId] = [
-                    'id' => $gatewayId,
-                    'name' => $gateway->getAttribute('name') ?: $gatewayId,
-                    'flows' => $flows,
-                ];
+        foreach (['exclusiveGateway' => 'exclusive', 'inclusiveGateway' => 'inclusive'] as $elementName => $type) {
+            foreach ($document->getElementsByTagNameNS($namespace, $elementName) as $gateway) {
+                $gatewayId = $gateway->getAttribute('id');
+                $flows = $flowsByGateway[$gatewayId] ?? [];
+                if ($gatewayId !== '' && count($flows) > 1) {
+                    $gateways[$gatewayId] = [
+                        'id' => $gatewayId,
+                        'name' => $gateway->getAttribute('name') ?: $gatewayId,
+                        'type' => $type,
+                        'flows' => $flows,
+                    ];
+                }
             }
         }
 

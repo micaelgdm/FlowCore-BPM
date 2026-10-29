@@ -19,10 +19,8 @@
                 <h1>{{ $process->name }}</h1>
             </div>
             <div class="fc-header-actions">
-                @if ($process->status === 'draft')
-                    <a class="fc-button fc-button-secondary" href="{{ route('master.processes.form.edit', $process) }}">Formulário</a>
-                    <a class="fc-button fc-button-secondary" href="{{ route('master.processes.tasks.edit', $process) }}">Equipes</a>
-                @endif
+                <a class="fc-button fc-button-secondary" href="{{ route('master.processes.form.edit', $process) }}">Formulário</a>
+                <a class="fc-button fc-button-secondary" href="{{ route('master.processes.tasks.edit', $process) }}">Equipes</a>
                 @if ($process->status === 'draft')
                     <button id="open-bpmn" class="fc-button fc-button-secondary" type="button">Abrir BPMN</button>
                 @endif
@@ -53,6 +51,7 @@
                         <span class="fc-published-pill">Versão substituída · publicada em {{ $process->published_at?->copy()->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i') }}</span>
                     @endif
                 @endif
+                @include('shared.profile-link')
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
                     <button class="fc-button fc-button-secondary" type="submit">Sair</button>
@@ -63,6 +62,7 @@
         @if (session('status'))
             <div class="fc-editor-flash" role="status">{{ session('status') }}</div>
         @endif
+        <div id="publish-feedback" class="fc-editor-flash fc-editor-flash-error" role="alert" aria-live="assertive" tabindex="-1" hidden></div>
 
         <main class="fc-main">
             <aside class="fc-panel fc-left-panel">

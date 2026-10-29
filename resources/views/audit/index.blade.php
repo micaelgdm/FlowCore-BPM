@@ -11,7 +11,7 @@
         <header class="fc-header">
             <a class="fc-brand" href="{{ route('master.processes.index') }}"><span class="fc-brand-mark">F</span><span><strong>FlowCore</strong><small>BPM</small></span></a>
             <div class="fc-process-name"><span class="fc-eyebrow">ÁREA MASTER</span><h1>Auditoria</h1></div>
-            <div class="fc-header-actions"><a class="fc-button fc-button-secondary" href="{{ route('master.processes.index') }}">Processos</a><form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form></div>
+            <div class="fc-header-actions"><a class="fc-button fc-button-secondary" href="{{ route('master.notifications.index') }}">Notificações</a><a class="fc-button fc-button-secondary" href="{{ route('master.processes.index') }}">Processos</a>@include('shared.profile-link')<form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form></div>
         </header>
         <main class="fc-list-content">
             <section class="fc-list-heading"><div><span class="fc-eyebrow">REGISTRO ADMINISTRATIVO</span><h2>Histórico de alterações</h2><p>Consulte publicações, versões e alterações de configuração feitas no sistema.</p></div></section>

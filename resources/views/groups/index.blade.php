@@ -15,6 +15,7 @@
             <div class="fc-header-actions">
                 <a class="fc-button fc-button-secondary" href="{{ route('master.processes.index') }}">Processos</a>
                 <a class="fc-button fc-button-secondary" href="{{ route('master.users.index') }}">Usuários</a>
+                @include('shared.profile-link')
                 <form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form>
             </div>
         </header>

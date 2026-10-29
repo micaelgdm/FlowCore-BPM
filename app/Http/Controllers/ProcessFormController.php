@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ProcessDefinition;
 use App\Models\AuditEvent;
+use App\Support\FormVisibilityRule;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,11 +15,10 @@ class ProcessFormController extends Controller
 {
     public function edit(ProcessDefinition $process): View
     {
-        abort_unless($process->status === 'draft', 409, 'O formulário só pode ser configurado antes da publicação.');
-
         return view('processes.form-builder', [
             'process' => $process,
             'fields' => $process->form_schema ?? [],
+            'readOnly' => $process->status !== 'draft',
         ]);
     }
 
@@ -30,13 +30,23 @@ class ProcessFormController extends Controller
             'fields' => ['required', 'array', 'min:1', 'max:30'],
             'fields.*.key' => ['required', 'string', 'regex:/^[a-z][a-z0-9_]{0,49}$/', 'not_in:idempotency_key,_token,_method', 'distinct'],
             'fields.*.label' => ['required', 'string', 'max:100'],
-            'fields.*.type' => ['required', 'in:text,textarea,number,date,select,boolean'],
+            'fields.*.type' => ['required', 'in:text,textarea,number,date,select,boolean,file'],
             'fields.*.required' => ['nullable', 'boolean'],
             'fields.*.options' => ['nullable', 'string', 'max:2000'],
+            'fields.*.visible_when_mode' => ['nullable', 'in:always,hidden_unless,shown_unless'],
+            'fields.*.visible_when_match' => ['nullable', 'in:all,any'],
+            'fields.*.conditions' => ['nullable', 'array', 'max:10'],
+            'fields.*.conditions.*.field' => ['nullable', 'string', 'max:50'],
+            'fields.*.conditions.*.operator' => ['nullable', 'in:eq,neq,contains,not_contains'],
+            'fields.*.conditions.*.value' => ['nullable', 'string', 'max:255'],
         ]);
 
         $validator->after(function ($validator) use ($request): void {
-            foreach ((array) $request->input('fields', []) as $index => $field) {
+            $fields = (array) $request->input('fields', []);
+            FormVisibilityRule::validateFields($fields, 'fields', function (string $key, string $message) use ($validator): void {
+                $validator->errors()->add($key, $message);
+            });
+            foreach ($fields as $index => $field) {
                 if (! is_array($field) || ($field['type'] ?? null) !== 'select') {
                     continue;
                 }
@@ -62,6 +72,10 @@ class ProcessFormController extends Controller
             if ($field['type'] === 'select') {
                 $options = preg_split('/\R/u', trim((string) ($field['options'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
                 $normalized['options'] = array_values(array_unique(array_map('trim', $options)));
+            }
+
+            if ($condition = FormVisibilityRule::normalize($field)) {
+                $normalized['visible_when'] = $condition;
             }
 
             return $normalized;

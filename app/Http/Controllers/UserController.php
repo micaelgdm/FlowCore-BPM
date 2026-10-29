@@ -42,8 +42,11 @@ class UserController extends Controller
     public function update(Request $request, User $user): RedirectResponse
     {
         $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'role' => ['required', Rule::enum(UserRole::class)],
             'is_active' => ['required', 'boolean'],
+            'password' => ['nullable', 'string', 'min:12', 'confirmed'],
         ]);
 
         if ($user->is($request->user())) {
@@ -59,8 +62,16 @@ class UserController extends Controller
             return back()->withErrors(['user' => 'A plataforma precisa manter ao menos um Administrador Master ativo.']);
         }
 
-        $user->forceFill($data)->save();
+        $password = $data['password'] ?? null;
+        unset($data['password']);
+        $data['email'] = mb_strtolower($data['email']);
 
-        return back()->with('status', 'Usuário atualizado.');
+        $user->forceFill($data);
+        if (filled($password)) {
+            $user->password = $password;
+        }
+        $user->save();
+
+        return back()->with('status', 'Cadastro do usuário atualizado.');
     }
 }

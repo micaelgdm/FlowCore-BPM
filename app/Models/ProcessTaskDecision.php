@@ -6,12 +6,12 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['process_instance_id', 'flowable_task_id', 'task_name', 'task_definition_key', 'decided_by', 'decision', 'justification', 'form_data', 'flowable_completed_at'])]
+#[Fillable(['process_instance_id', 'flowable_task_id', 'task_name', 'task_definition_key', 'decided_by', 'decision', 'justification', 'form_data', 'flowable_completed_at', 'flowable_started_at'])]
 class ProcessTaskDecision extends Model
 {
     protected function casts(): array
     {
-        return ['flowable_completed_at' => 'immutable_datetime', 'form_data' => 'array'];
+        return ['flowable_completed_at' => 'immutable_datetime', 'flowable_started_at' => 'immutable_datetime', 'form_data' => 'array'];
     }
 
     public function processInstance(): BelongsTo

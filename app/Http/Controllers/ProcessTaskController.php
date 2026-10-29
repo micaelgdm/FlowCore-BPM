@@ -5,13 +5,18 @@ namespace App\Http\Controllers;
 use App\Models\ProcessInstance;
 use App\Models\ProcessTaskDecision;
 use App\Models\User;
+use App\Services\FormAttachmentService;
 use App\Services\FlowableClient;
+use App\Services\TaskAssignmentNotificationService;
+use App\Support\FormFieldCondition;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -104,7 +109,7 @@ class ProcessTaskController extends Controller
                 $taskKey = $task['taskDefinitionKey'] ?? null;
                 $returnNotice = is_string($taskKey)
                     ? $decisions->filter(fn (ProcessTaskDecision $decision): bool => $decision->decision === 'rejected'
-                        && ($decision->form_data['return_to'] ?? null) === $taskKey)->last()
+                        && in_array($taskKey, Arr::wrap($decision->form_data['return_to'] ?? []), true))->last()
                     : null;
                 $previousDecision = is_string($taskKey)
                     ? $decisions->where('task_definition_key', $taskKey)->last()
@@ -172,7 +177,7 @@ class ProcessTaskController extends Controller
         }
     }
 
-    public function approve(Request $request, string $taskId, FlowableClient $flowable): RedirectResponse
+    public function approve(Request $request, string $taskId, FlowableClient $flowable, TaskAssignmentNotificationService $notifications, FormAttachmentService $attachments): RedirectResponse
     {
         $assignee = PortalProcessController::flowableAssignee($request->user()->id);
 
@@ -203,17 +208,40 @@ class ProcessTaskController extends Controller
         $hasPermission = self::userCanAccessTask($instance, $task, $request->user());
         abort_unless($hasPermission, 403);
         $schema = self::schemaForTask($instance, $task);
+        $taskKey = $task['taskDefinitionKey'] ?? null;
+        $previousDecision = is_string($taskKey)
+            ? ProcessTaskDecision::query()->where('process_instance_id', $instance->id)->where('task_definition_key', $taskKey)->latest('id')->first()
+            : null;
+        $previousData = $previousDecision?->form_data ?? [];
+        unset($previousData['return_to']);
+        $schema['previous_data'] = $previousData;
         $data = self::validateTaskSubmission($request, $schema);
         $decisionValue = ($schema['kind'] ?? 'approval') === 'approval' ? $data['decision'] : 'completed';
-        $taskFormData = self::normalizeTaskData($schema['fields'] ?? [], $data['task_data'] ?? []);
-        $returnTo = $decisionValue === 'rejected' ? ($data['return_to'] ?? null) : null;
-        if (is_string($returnTo) && $returnTo !== '') {
+        $taskFormData = self::normalizeTaskData(
+            $schema['fields'] ?? [],
+            $data['task_data'] ?? [],
+            $previousData,
+            "task-{$instance->uuid}-".hash('sha256', $taskId),
+            $attachments,
+        );
+        $returnTo = $decisionValue === 'rejected'
+            ? array_values(array_unique(Arr::wrap($data['return_to'] ?? [])))
+            : [];
+        if ($returnTo !== []) {
             $taskFormData['return_to'] = $returnTo;
         }
         $variables = self::flowableVariables($task, $schema, $decisionValue, $data['justification'] ?? null, $taskFormData, $returnTo);
+        $taskStartedAt = null;
+        if (is_string($task['createTime'] ?? null) && $task['createTime'] !== '') {
+            try {
+                $taskStartedAt = Carbon::parse($task['createTime'])->utc();
+            } catch (\Throwable) {
+                $taskStartedAt = null;
+            }
+        }
 
         try {
-            $decision = DB::transaction(function () use ($request, $taskId, $task, $instance, $data, $taskFormData, $decisionValue): ProcessTaskDecision {
+            $decision = DB::transaction(function () use ($request, $taskId, $task, $instance, $data, $taskFormData, $decisionValue, $taskStartedAt): ProcessTaskDecision {
                 $decision = ProcessTaskDecision::query()->where('flowable_task_id', $taskId)->lockForUpdate()->first();
 
                 if ($decision) {
@@ -228,6 +256,7 @@ class ProcessTaskController extends Controller
                         'decision' => $decisionValue,
                         'justification' => $data['justification'] ?? '',
                         'form_data' => $taskFormData,
+                        'flowable_started_at' => $decision->flowable_started_at ?? $taskStartedAt,
                     ])->save();
 
                     return $decision;
@@ -242,6 +271,7 @@ class ProcessTaskController extends Controller
                     'decision' => $decisionValue,
                     'justification' => $data['justification'] ?? '',
                     'form_data' => $taskFormData,
+                    'flowable_started_at' => $taskStartedAt,
                 ]);
             });
         } catch (QueryException $exception) {
@@ -274,6 +304,12 @@ class ProcessTaskController extends Controller
         }
 
         try {
+            $notifications->notifyNewTasks($instance, $flowable);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+
+        try {
             if (($instance->processDefinition->task_group_assignments ?? []) === []) {
                 $flowable->assignUnassignedTasks($instance->flowable_process_instance_id, $assignee);
             }
@@ -286,6 +322,37 @@ class ProcessTaskController extends Controller
             return back()->with('status', 'A tarefa foi concluída. A atualização do estado será repetida ao consultar as tarefas.');
         }
 
+        $requesterNotificationType = null;
+        $requesterNotificationContext = null;
+        if ($decision->decision === 'rejected') {
+            $returnTaskIds = Arr::wrap($decision->form_data['return_to'] ?? []);
+            $returnTaskNames = collect($returnTaskIds)
+                ->map(fn ($targetId) => ProcessTaskAssignmentController::userTasks($instance->processDefinition->bpmn_xml ?? '')[$targetId]['name'] ?? $targetId)
+                ->filter(fn ($name): bool => is_string($name) && $name !== '')
+                ->join(', ');
+            $requesterNotificationType = $returnTaskIds !== [] ? 'returned' : 'rejected';
+            $requesterNotificationContext = trim(collect([
+                filled($returnTaskNames) ? 'Etapa(s) de correção: '.$returnTaskNames : null,
+                filled($decision->justification) ? 'Motivo: '.$decision->justification : null,
+            ])->filter()->join(' '));
+        } elseif ($decision->decision === 'approved') {
+            $requesterNotificationType = $instance->status === 'completed' ? 'completed' : 'approval';
+            $requesterNotificationContext = $instance->status === 'completed'
+                ? 'A etapa '.$decision->task_name.' encerrou o processo.'
+                : 'Etapa aprovada: '.$decision->task_name.'.';
+        } elseif ($instance->status === 'completed') {
+            $requesterNotificationType = 'completed';
+            $requesterNotificationContext = 'O processo foi finalizado após a etapa '.$decision->task_name.'.';
+        }
+
+        if ($requesterNotificationType !== null) {
+            try {
+                $notifications->notifyRequester($instance, $task, $requesterNotificationType, $requesterNotificationContext);
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
+        }
+
         $status = match ($decision->decision) {
             'approved' => 'Aprovação registrada no histórico.',
             'rejected' => 'Tarefa devolvida para correção e registrada no histórico.',
@@ -296,7 +363,7 @@ class ProcessTaskController extends Controller
     }
 
     /** @param array<string, mixed> $task
-     *  @return array{kind: string, fields: array<int, array<string, mixed>>, return_targets?: array<string, string>}
+     *  @return array{kind: string, fields: array<int, array<string, mixed>>, return_targets?: array<string, string>, allow_multiple_returns?: bool}
      */
     private static function schemaForTask(?ProcessInstance $instance, array $task): array
     {
@@ -317,7 +384,8 @@ class ProcessTaskController extends Controller
         }
 
         if (($schema['kind'] ?? null) === 'approval' && $instance) {
-            $schema['return_targets'] = self::returnTargets($instance);
+            $schema['return_targets'] = self::returnOptions($instance);
+            $schema['allow_multiple_returns'] = self::allowsMultipleReturns($instance);
         }
 
         return $schema;
@@ -338,6 +406,42 @@ class ProcessTaskController extends Controller
             ->only($targetIds)
             ->mapWithKeys(fn (array $task, string $taskId): array => [$taskId => $task['name']])
             ->all();
+    }
+
+    /** @return array<string, string> */
+    private static function returnOptions(ProcessInstance $instance): array
+    {
+        if (! self::allowsMultipleReturns($instance)) {
+            return self::returnTargets($instance);
+        }
+
+        $routes = $instance->processDefinition->gateway_routes ?? [];
+        $gateways = ProcessTaskAssignmentController::decisionGateways($instance->processDefinition->bpmn_xml ?? '');
+        $targetIds = collect($routes)
+            ->filter(fn ($flows, $gatewayId): bool => ($gateways[$gatewayId]['type'] ?? null) === 'inclusive')
+            ->flatten()
+            ->filter(fn ($outcome): bool => is_string($outcome) && str_starts_with($outcome, 'return:'))
+            ->map(fn (string $outcome): string => substr($outcome, 7))
+            ->unique()
+            ->values()
+            ->all();
+
+        return collect(ProcessTaskAssignmentController::userTasks($instance->processDefinition->bpmn_xml ?? ''))
+            ->only($targetIds)
+            ->mapWithKeys(fn (array $task, string $taskId): array => [$taskId => $task['name']])
+            ->all();
+    }
+
+    private static function allowsMultipleReturns(ProcessInstance $instance): bool
+    {
+        $routes = $instance->processDefinition->gateway_routes ?? [];
+        $gateways = ProcessTaskAssignmentController::decisionGateways($instance->processDefinition->bpmn_xml ?? '');
+        $hasInclusiveReturn = collect($routes)->contains(function ($flows, $gatewayId) use ($gateways): bool {
+            return ($gateways[$gatewayId]['type'] ?? null) === 'inclusive'
+                && collect($flows)->contains(fn ($outcome): bool => is_string($outcome) && str_starts_with($outcome, 'return:'));
+        });
+
+        return $hasInclusiveReturn && str_contains($instance->processDefinition->bpmn_xml ?? '', 'fc_return_to.contains(');
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -362,7 +466,11 @@ class ProcessTaskController extends Controller
 
             foreach ($formData as $key => $value) {
                 if ($key === 'return_to') {
-                    $fields[] = ['label' => 'Setor que recebeu a correção', 'value' => $returnTargets[$value] ?? $value];
+                    $labels = collect(Arr::wrap($value))->map(fn ($target): string => $returnTargets[$target] ?? (string) $target);
+                    $fields[] = [
+                        'label' => $labels->count() === 1 ? 'Setor que recebeu a correção' : 'Setores que receberam a correção',
+                        'value' => $labels->join(', '),
+                    ];
                 }
             }
 
@@ -390,16 +498,17 @@ class ProcessTaskController extends Controller
     {
         $kind = ($schema['kind'] ?? 'approval') === 'approval' ? 'approval' : 'work';
         $returnTargets = $schema['return_targets'] ?? [];
+        $allowMultipleReturns = (bool) ($schema['allow_multiple_returns'] ?? false);
         $returnRules = $returnTargets === []
             ? ['prohibited']
-            : ['nullable', 'string', Rule::in(array_keys($returnTargets))];
-        if ($kind === 'approval' && $returnTargets !== []) {
-            array_unshift($returnRules, 'required_if:decision,rejected');
-        }
+            : ($allowMultipleReturns
+                ? ['nullable', 'required_if:decision,rejected', 'array', 'min:1']
+                : ['nullable', 'required_if:decision,rejected', 'string', Rule::in(array_keys($returnTargets))]);
         $rules = [
             'justification' => [$kind === 'approval' ? 'required' : 'nullable', 'string', 'max:2000'],
             'decision' => [$kind === 'approval' ? 'required' : 'prohibited', Rule::in(['approved', 'rejected'])],
             'return_to' => $returnRules,
+            'return_to.*' => $allowMultipleReturns ? ['string', Rule::in(array_keys($returnTargets))] : ['prohibited'],
             'task_data' => ['nullable', 'array'],
         ];
 
@@ -408,7 +517,13 @@ class ProcessTaskController extends Controller
                 continue;
             }
 
-            $presence = ($field['required'] ?? false) ? 'required' : 'nullable';
+            if (! FormFieldCondition::isVisible($field, (array) $request->input('task_data', []))) {
+                $rules["task_data.{$field['key']}"] = ['prohibited'];
+                continue;
+            }
+
+            $previousAttachment = $schema['previous_data'][$field['key']]['attachment_id'] ?? null;
+            $presence = ($field['required'] ?? false) && ! ($field['type'] === 'file' && filled($previousAttachment)) ? 'required' : 'nullable';
             $typeRules = match ($field['type'] ?? null) {
                 'text' => ['string', 'max:2000'],
                 'textarea' => ['string', 'max:10000'],
@@ -416,6 +531,7 @@ class ProcessTaskController extends Controller
                 'date' => ['date_format:Y-m-d'],
                 'select' => [Rule::in($field['options'] ?? [])],
                 'boolean' => ['boolean'],
+                'file' => ['file', 'max:10240', 'mimes:pdf,doc,docx,xls,xlsx,csv,txt,jpg,jpeg,png,webp'],
                 default => ['prohibited'],
             };
             $rules["task_data.{$field['key']}"] = [$presence, ...$typeRules];
@@ -439,13 +555,27 @@ class ProcessTaskController extends Controller
      *  @param array<string, mixed> $submitted
      *  @return array<string, mixed>
      */
-    private static function normalizeTaskData(array $fields, array $submitted): array
+    private static function normalizeTaskData(array $fields, array $submitted, array $previousData, string $context, FormAttachmentService $attachments): array
     {
         $values = [];
 
         foreach ($fields as $field) {
             $key = $field['key'] ?? null;
             $value = is_string($key) ? ($submitted[$key] ?? null) : null;
+
+            if (! is_string($key) || ! FormFieldCondition::isVisible($field, $submitted)) {
+                continue;
+            }
+
+            if (($field['type'] ?? null) === 'file') {
+                $attachment = $value instanceof UploadedFile
+                    ? $attachments->store($value, $context, $key)
+                    : ($previousData[$key] ?? null);
+                if (is_array($attachment)) {
+                    $values[$key] = $attachment;
+                }
+                continue;
+            }
 
             if ($value === null || $value === '') {
                 continue;
@@ -466,7 +596,7 @@ class ProcessTaskController extends Controller
      *  @param array<string, mixed> $formData
      *  @return array<int, array{name: string, type: string, value: mixed}>
      */
-    private static function flowableVariables(array $task, array $schema, string $decision, ?string $justification, array $formData, ?string $returnTo = null): array
+    private static function flowableVariables(array $task, array $schema, string $decision, ?string $justification, array $formData, array $returnTo = []): array
     {
         $taskKey = is_string($task['taskDefinitionKey'] ?? null) ? $task['taskDefinitionKey'] : 'task';
         $token = rtrim(strtr(base64_encode($taskKey), '+/', '-_'), '=');
@@ -475,7 +605,10 @@ class ProcessTaskController extends Controller
         if (($schema['kind'] ?? 'approval') === 'approval') {
             $variables[] = ['name' => 'fc_decision', 'type' => 'string', 'value' => $decision];
             $variables[] = ['name' => 'fc_justification', 'type' => 'string', 'value' => trim((string) $justification)];
-            $variables[] = ['name' => 'fc_return_to', 'type' => 'string', 'value' => $returnTo ?? ''];
+            $returnValue = count($returnTo) === 1
+                ? $returnTo[0]
+                : ($returnTo === [] ? '' : '|'.implode('|', $returnTo).'|');
+            $variables[] = ['name' => 'fc_return_to', 'type' => 'string', 'value' => $returnValue];
         } else {
             $variables[] = ['name' => "fc_task_decision_{$token}", 'type' => 'string', 'value' => 'completed'];
             if (filled($justification)) {
@@ -484,6 +617,10 @@ class ProcessTaskController extends Controller
         }
 
         foreach ($formData as $key => $value) {
+            if ($key === 'return_to' || is_array($value)) {
+                continue;
+            }
+
             $type = match (true) {
                 is_bool($value) => 'boolean',
                 is_int($value) => 'integer',

@@ -6,6 +6,7 @@ use App\Models\AuditEvent;
 use App\Models\ProcessDefinition;
 use App\Models\ProcessInstance;
 use App\Models\ProcessGroup;
+use App\Models\User;
 use App\Services\FlowableClient;
 use DOMDocument;
 use DOMElement;
@@ -19,13 +20,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 use RuntimeException;
 
 class ProcessDefinitionController extends Controller
 {
-    public function index(): View
+    public function index(FlowableClient $flowable): View
     {
         $processes = ProcessDefinition::query()->latest('updated_at')->get();
         $currentPublishedByFamily = $processes
@@ -51,11 +53,103 @@ class ProcessDefinitionController extends Controller
             ->orderBy('process_name')
             ->get();
 
+        $stepRows = DB::table('process_task_decisions as decisions')
+            ->join('process_instances as instances', 'instances.id', '=', 'decisions.process_instance_id')
+            ->join('process_definitions as definitions', 'definitions.id', '=', 'instances.process_definition_id')
+            ->whereNotNull('decisions.flowable_started_at')
+            ->whereNotNull('decisions.flowable_completed_at')
+            ->where('decisions.flowable_started_at', '>=', now()->subDays(90))
+            ->select([
+                'definitions.family_uuid',
+                'definitions.name as process_name',
+                'definitions.version',
+                'decisions.task_definition_key',
+                'decisions.task_name',
+                'decisions.flowable_started_at',
+                'decisions.flowable_completed_at',
+            ])
+            ->get();
+        $stepMetrics = $stepRows
+            ->map(function ($row): ?array {
+                $seconds = Carbon::parse($row->flowable_completed_at)->getTimestamp() - Carbon::parse($row->flowable_started_at)->getTimestamp();
+                return $seconds > 0 ? ['row' => $row, 'seconds' => $seconds] : null;
+            })
+            ->filter()
+            ->groupBy(fn (array $item): string => $item['row']->family_uuid.'|'.$item['row']->version.'|'.$item['row']->task_definition_key)
+            ->map(function ($items): object {
+                $first = $items->first()['row'];
+                return (object) [
+                    'process_name' => $first->process_name,
+                    'version' => $first->version,
+                    'task_name' => $first->task_name,
+                    'sample_count' => $items->count(),
+                    'average_seconds' => (int) round($items->avg('seconds')),
+                ];
+            })
+            ->sortByDesc('sample_count')
+            ->values();
+
+        $runtimeMetricsAvailable = true;
+        $pendingGroupMetrics = collect();
+        try {
+            $activeTasks = $flowable->allActiveTasks();
+            $instancesById = ProcessInstance::query()
+                ->with('processDefinition')
+                ->where('status', 'running')
+                ->whereNotNull('flowable_process_instance_id')
+                ->get()
+                ->keyBy('flowable_process_instance_id');
+            $groupsById = ProcessGroup::query()->get()->keyBy('id');
+            $groupTotals = [];
+
+            foreach ($activeTasks as $task) {
+                $instance = $instancesById->get($task['processInstanceId'] ?? '');
+                $taskKey = $task['taskDefinitionKey'] ?? null;
+                if (! $instance || ! is_string($taskKey)) {
+                    continue;
+                }
+
+                $groupId = $instance->processDefinition->task_group_assignments[$taskKey] ?? null;
+                if (! is_numeric($groupId)) {
+                    continue;
+                }
+
+                $groupId = (int) $groupId;
+                $group = $groupsById->get($groupId);
+                $schema = $instance->processDefinition->task_form_schemas[$taskKey] ?? [];
+                $dueAt = is_numeric($schema['sla_hours'] ?? null) && is_string($task['createTime'] ?? null)
+                    ? Carbon::parse($task['createTime'])->addHours((int) $schema['sla_hours'])->setTimezone(config('app.display_timezone'))
+                    : null;
+
+                $groupTotals[$groupId] ??= [
+                    'group_name' => $group?->name ?? "Grupo removido #{$groupId}",
+                    'pending_count' => 0,
+                    'overdue_count' => 0,
+                ];
+                $groupTotals[$groupId]['pending_count']++;
+                if ($dueAt && $dueAt->isPast()) {
+                    $groupTotals[$groupId]['overdue_count']++;
+                }
+            }
+
+            $pendingGroupMetrics = collect($groupTotals)
+                ->map(fn (array $metric): object => (object) $metric)
+                ->sortByDesc('overdue_count')
+                ->sortByDesc('pending_count')
+                ->values();
+        } catch (ConnectionException|RequestException|RuntimeException $exception) {
+            report($exception);
+            $runtimeMetricsAvailable = false;
+        }
+
         return view('processes.index', [
             'processes' => $processes,
             'currentPublishedByFamily' => $currentPublishedByFamily,
             'requestMetrics' => $requestMetrics,
             'processMetrics' => $processMetrics,
+            'stepMetrics' => $stepMetrics,
+            'pendingGroupMetrics' => $pendingGroupMetrics,
+            'runtimeMetricsAvailable' => $runtimeMetricsAvailable,
         ]);
     }
 
@@ -277,6 +371,24 @@ class ProcessDefinitionController extends Controller
                 $taskUserAssignments = $locked->task_user_assignments ?? [];
                 $taskFormSchemas = $locked->task_form_schemas ?? [];
                 $groupsById = ProcessGroup::query()->whereIn('id', array_values($taskGroupAssignments))->get()->keyBy('id');
+                $humanTasks = ProcessTaskAssignmentController::userTasks($locked->bpmn_xml ?? '');
+                $assignedUserIds = collect($taskUserAssignments)->filter(fn ($id): bool => is_numeric($id))->map(fn ($id): int => (int) $id)->unique();
+                $activeUserIds = User::query()->whereIn('id', $assignedUserIds)->where('is_active', true)->pluck('id')->map(fn ($id): int => (int) $id)->all();
+                $unassignedTasks = collect($humanTasks)->filter(function (array $task, string $taskId) use ($taskGroupAssignments, $taskUserAssignments, $groupsById, $activeUserIds): bool {
+                    $groupId = $taskGroupAssignments[$taskId] ?? null;
+                    $userId = $taskUserAssignments[$taskId] ?? null;
+                    $hasGroup = is_numeric($groupId) && $groupsById->has((int) $groupId);
+                    $hasActiveUser = is_numeric($userId) && in_array((int) $userId, $activeUserIds, true);
+
+                    return ! $hasGroup && ! $hasActiveUser;
+                })->pluck('name')->values()->all();
+
+                if ($locked->status === 'draft' && $unassignedTasks !== []) {
+                    return response()->json([
+                        'message' => 'Antes de publicar, atribua cada atividade humana a um grupo ou usuário ativo: '.implode(', ', $unassignedTasks).'.',
+                    ], 422);
+                }
+
                 $gatewayRoutes = $locked->gateway_routes ?? [];
                 $preparedXml = $this->prepareBpmnForPublication($locked->bpmn_xml ?? '', $locked->id, $taskGroupAssignments, $groupsById->all(), $taskFormSchemas, $gatewayRoutes, $taskUserAssignments);
 
@@ -424,7 +536,7 @@ class ProcessDefinitionController extends Controller
         $process = $processes->item(0);
         $userTasks = $document->getElementsByTagNameNS($namespace, 'userTask');
 
-        if ($taskGroupAssignments !== [] || $taskUserAssignments !== []) {
+        if ($userTasks->length > 0 || $taskGroupAssignments !== [] || $taskUserAssignments !== []) {
             $assignedTaskIds = array_unique(array_merge(array_keys($taskGroupAssignments), array_keys($taskUserAssignments)));
             if ($userTasks->length !== count($assignedTaskIds)) {
                 throw new FlowablePublicationRejected('Every human task must have a configured group or user.');
@@ -471,7 +583,7 @@ class ProcessDefinitionController extends Controller
             }
 
             $hasApprovalTask = collect($taskFormSchemas)->contains(fn ($schema): bool => is_array($schema) && ($schema['kind'] ?? null) === 'approval');
-            $approvalGateways = ProcessTaskAssignmentController::exclusiveGateways($xml);
+            $approvalGateways = ProcessTaskAssignmentController::decisionGateways($xml);
             if ($hasApprovalTask && $approvalGateways !== []) {
                 foreach ($approvalGateways as $gatewayId => $gateway) {
                     $routes = $gatewayRoutes[$gatewayId] ?? [];
@@ -501,10 +613,12 @@ class ProcessDefinitionController extends Controller
 
             foreach ($gatewayRoutes as $gatewayId => $routes) {
                 $gateway = null;
-                foreach ($document->getElementsByTagNameNS($namespace, 'exclusiveGateway') as $candidate) {
-                    if ($candidate instanceof DOMElement && $candidate->getAttribute('id') === (string) $gatewayId) {
-                        $gateway = $candidate;
-                        break;
+                foreach (['exclusiveGateway', 'inclusiveGateway'] as $gatewayType) {
+                    foreach ($document->getElementsByTagNameNS($namespace, $gatewayType) as $candidate) {
+                        if ($candidate instanceof DOMElement && $candidate->getAttribute('id') === (string) $gatewayId) {
+                            $gateway = $candidate;
+                            break 2;
+                        }
                     }
                 }
 
@@ -539,8 +653,10 @@ class ProcessDefinitionController extends Controller
                     $condition = $document->createElementNS($namespace, 'bpmn:conditionExpression');
                     $condition->setAttributeNS($xsiNamespace, 'xsi:type', 'bpmn:tFormalExpression');
                     $expression = is_string($returnTaskId)
-                        ? '${fc_decision == ' . "'rejected' && fc_return_to == '" . $returnTaskId . "'" . '}'
-                        : '${fc_decision == ' . "'" . $outcome . "'" . '}';
+                        ? '${fc_decision == ' . "'rejected' && (fc_return_to == '" . $returnTaskId . "' || fc_return_to.contains('|" . $returnTaskId . "|'))" . '}'
+                        : ($outcome === 'rejected'
+                            ? "\${fc_decision == 'rejected' && fc_return_to == ''}"
+                            : '${fc_decision == ' . "'" . $outcome . "'" . '}');
                     $condition->appendChild($document->createTextNode($expression));
                     $flow->appendChild($condition);
                 }

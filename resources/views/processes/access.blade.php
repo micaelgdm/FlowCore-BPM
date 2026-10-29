@@ -13,6 +13,7 @@
             <div class="fc-process-name"><span class="fc-eyebrow">PERMISSÕES · V{{ $process->version }}</span><h1>{{ $process->name }}</h1></div>
             <div class="fc-header-actions">
                 <a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">Voltar ao processo</a>
+                @include('shared.profile-link')
                 <form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form>
             </div>
         </header>

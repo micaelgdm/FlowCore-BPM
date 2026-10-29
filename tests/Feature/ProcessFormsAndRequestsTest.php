@@ -7,7 +7,9 @@ use App\Models\ProcessInstance;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class ProcessFormsAndRequestsTest extends TestCase
@@ -33,6 +35,87 @@ class ProcessFormsAndRequestsTest extends TestCase
             ['key' => 'justificativa', 'label' => 'Justificativa', 'type' => 'textarea', 'required' => true],
             ['key' => 'area', 'label' => 'Área', 'type' => 'select', 'required' => false, 'options' => ['Financeiro', 'Operações']],
         ], $process->fresh()->form_schema);
+    }
+
+    public function test_form_schema_supports_private_attachments_and_conditional_fields(): void
+    {
+        $master = User::factory()->create(['role' => 'master', 'is_active' => true]);
+        $process = $this->draftProcess($master);
+
+        $this->actingAs($master)
+            ->put(route('master.processes.form.update', $process), [
+                'fields' => [
+                    ['key' => 'item_type', 'label' => 'Tipo do produto', 'type' => 'select', 'options' => "Revenda\nFabricado"],
+                    ['key' => 'tax_code', 'label' => 'NCM', 'type' => 'text', 'required' => '1', 'visible_when_field' => 'item_type', 'visible_when_value' => 'Revenda'],
+                    ['key' => 'spec_sheet', 'label' => 'Ficha técnica', 'type' => 'file'],
+                ],
+            ])
+            ->assertRedirect(route('master.processes.form.edit', $process))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame([
+            ['key' => 'item_type', 'label' => 'Tipo do produto', 'type' => 'select', 'required' => false, 'options' => ['Revenda', 'Fabricado']],
+            ['key' => 'tax_code', 'label' => 'NCM', 'type' => 'text', 'required' => true, 'visible_when' => ['field' => 'item_type', 'equals' => 'Revenda']],
+            ['key' => 'spec_sheet', 'label' => 'Ficha técnica', 'type' => 'file', 'required' => false],
+        ], $process->fresh()->form_schema);
+    }
+
+    public function test_requester_can_submit_an_attachment_and_download_it_privately(): void
+    {
+        Storage::fake('local');
+        $requester = User::factory()->create(['role' => 'requester', 'is_active' => true]);
+        $process = $this->publishedProcess(User::factory()->create(['role' => 'master', 'is_active' => true]));
+        $process->forceFill([
+            'is_active' => true,
+            'form_schema' => [
+                ['key' => 'category', 'label' => 'Categoria', 'type' => 'select', 'required' => true, 'options' => ['Produto', 'Outro']],
+                ['key' => 'tax_code', 'label' => 'NCM', 'type' => 'text', 'required' => true, 'visible_when' => ['field' => 'category', 'equals' => 'Produto']],
+                ['key' => 'spec_sheet', 'label' => 'Ficha técnica', 'type' => 'file', 'required' => true],
+            ],
+        ])->save();
+        $process->authorizedUsers()->attach($requester->id, ['can_view' => true, 'can_start' => true, 'can_approve' => false]);
+        $this->configureFlowable();
+        Http::fake(function (Request $request) {
+            if ($request->method() === 'GET' && str_contains($request->url(), 'runtime/process-instances?businessKey=')) {
+                return Http::response(['total' => 0, 'data' => []]);
+            }
+            if ($request->method() === 'GET' && str_contains($request->url(), 'history/historic-process-instances?businessKey=')) {
+                return Http::response(['total' => 0, 'data' => []]);
+            }
+            if ($request->method() === 'POST' && str_ends_with($request->url(), '/runtime/process-instances')) {
+                return Http::response(['id' => 'flowable-attachment-instance'], 201);
+            }
+            if ($request->method() === 'GET' && str_contains($request->url(), 'runtime/process-instances?id=')) {
+                return Http::response(['total' => 1, 'data' => [['id' => 'flowable-attachment-instance']]]);
+            }
+            return Http::response(['total' => 0, 'data' => []]);
+        });
+
+        $this->actingAs($requester)
+            ->post(route('portal.processes.start.submit', $process), [
+                'idempotency_key' => '123e4567-e89b-42d3-a456-426614174099',
+                'category' => 'Outro',
+                'spec_sheet' => UploadedFile::fake()->create('ficha.pdf', 40, 'application/pdf'),
+            ])
+            ->assertRedirect();
+
+        $instance = ProcessInstance::query()->firstOrFail();
+        $attachment = $instance->form_data['spec_sheet'];
+        $this->assertSame('ficha.pdf', $attachment['name']);
+        Storage::disk('local')->assertExists($attachment['path']);
+        $this->assertArrayNotHasKey('tax_code', $instance->form_data);
+        Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+            && str_ends_with($request->url(), '/runtime/process-instances')
+            && ! collect($request['variables'])->contains(fn (array $variable): bool => $variable['name'] === 'spec_sheet'));
+
+        $this->get(route('portal.attachments.download', [$instance->uuid, $attachment['attachment_id']]))
+            ->assertOk()
+            ->assertHeader('content-disposition');
+
+        $otherUser = User::factory()->create(['role' => 'requester', 'is_active' => true]);
+        $this->actingAs($otherUser)
+            ->get(route('portal.attachments.download', [$instance->uuid, $attachment['attachment_id']]))
+            ->assertForbidden();
     }
 
     public function test_form_builder_rejects_duplicate_keys_and_selects_without_options(): void

@@ -11,7 +11,7 @@
         <header class="fc-header">
             <a class="fc-brand" href="{{ route('portal.processes.index') }}"><span class="fc-brand-mark">F</span><span><strong>FlowCore</strong><small>BPM</small></span></a>
             <div class="fc-process-name"><span class="fc-eyebrow">ÁREA DO USUÁRIO · {{ auth()->user()->role_label }}</span><h1>Meus processos</h1></div>
-            <div class="fc-header-actions"><a class="fc-button fc-button-secondary fc-task-nav-link" href="{{ route('portal.tasks.index') }}" @if ($pendingTaskCount > 0) aria-label="Minhas tarefas, {{ $pendingTaskCount }} pendentes" @endif>Minhas tarefas @if ($pendingTaskCount > 0)<span class="fc-task-nav-count" aria-hidden="true">{{ $pendingTaskCount > 99 ? '99+' : $pendingTaskCount }}</span>@endif</a><form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form></div>
+            <div class="fc-header-actions"><a class="fc-button fc-button-secondary fc-task-nav-link" href="{{ route('portal.tasks.index') }}" @if ($pendingTaskCount > 0) aria-label="Minhas tarefas, {{ $pendingTaskCount }} pendentes" @endif>Minhas tarefas @if ($pendingTaskCount > 0)<span class="fc-task-nav-count" aria-hidden="true">{{ $pendingTaskCount > 99 ? '99+' : $pendingTaskCount }}</span>@endif</a><a class="fc-button fc-button-secondary" href="{{ route('portal.requests.index') }}">Minhas solicitações</a>@include('shared.profile-link')<form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form></div>
         </header>
         <main class="fc-list-content">
             <section class="fc-list-heading"><div><span class="fc-eyebrow">PROCESSOS DISPONÍVEIS</span><h2>Seu catálogo</h2><p>A lista contém somente processos publicados aos quais sua conta recebeu acesso.</p></div></section>
@@ -65,18 +65,6 @@
                         @endforeach
                     </div>
                 @endif
-            </section>
-            <section class="fc-process-list">
-                <div class="fc-list-title"><h3>Minhas solicitações</h3><span>{{ $instances->count() }}</span></div>
-                @forelse ($instances as $instance)
-                    <a class="fc-process-row" href="{{ route('portal.requests.show', $instance->uuid) }}">
-                        <span class="fc-process-icon">↗</span>
-                        <span class="fc-process-row-main"><strong>{{ $instance->processDefinition->name }}</strong><small>Enviada em {{ $instance->created_at->copy()->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i') }}</small></span>
-                        <span class="fc-status-pill {{ in_array($instance->status, ['running', 'completed'], true) ? 'is-published' : '' }}">{{ match ($instance->status) { 'running' => 'Em andamento', 'completed' => 'Concluída', default => 'Falha ao iniciar' } }}</span>
-                    </a>
-                @empty
-                    <div class="fc-empty-state"><strong>Você ainda não enviou solicitações</strong><span>Os formulários dos processos liberados aparecem no catálogo acima.</span></div>
-                @endforelse
             </section>
         </main>
     </div>

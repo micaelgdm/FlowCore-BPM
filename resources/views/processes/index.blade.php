@@ -18,7 +18,9 @@
             <div class="fc-header-actions">
                 <a class="fc-button fc-button-secondary" href="{{ route('master.users.index') }}">Usuários</a>
                 <a class="fc-button fc-button-secondary" href="{{ route('master.groups.index') }}">Grupos</a>
+                <a class="fc-button fc-button-secondary" href="{{ route('master.notifications.index') }}">Notificações</a>
                 <a class="fc-button fc-button-secondary" href="{{ route('master.audit.index') }}">Auditoria</a>
+                @include('shared.profile-link')
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
                     <button class="fc-button fc-button-secondary" type="submit">Sair</button>
@@ -54,6 +56,47 @@
                             </tbody>
                         </table>
                     @endif
+                </div>
+            </section>
+            <section class="fc-metrics-section fc-operational-section" aria-labelledby="fc-operational-title">
+                <div class="fc-metrics-heading"><div><span class="fc-eyebrow">PRODUTIVIDADE</span><h3 id="fc-operational-title">Tempos por etapa e pendências</h3></div><small>Últimos 90 dias · durações começam a ser registradas nesta atualização</small></div>
+                <div class="fc-operational-metrics-grid">
+                    <div class="fc-metrics-table-wrap">
+                        <div class="fc-metrics-heading"><div><h4>Tempo médio por etapa</h4></div></div>
+                        @if ($stepMetrics->isEmpty())
+                            <p class="fc-metrics-empty">Os tempos aparecerão conforme novas tarefas forem concluídas com o motor Flowable.</p>
+                        @else
+                            <table class="fc-metrics-table">
+                                <thead><tr><th>Processo e etapa</th><th>Média</th><th>Concluídas</th></tr></thead>
+                                <tbody>
+                                    @foreach ($stepMetrics as $metric)
+                                        @php($duration = (int) $metric->average_seconds)
+                                        @php($days = intdiv($duration, 86400))
+                                        @php($hours = intdiv($duration % 86400, 3600))
+                                        @php($minutes = intdiv($duration % 3600, 60))
+                                        <tr><th scope="row"><span>{{ $metric->task_name }}</span><small>{{ $metric->process_name }} · V{{ $metric->version }}</small></th><td>{{ $days ? $days.' d ' : '' }}{{ $hours ? $hours.' h ' : '' }}{{ $minutes ?: ($days || $hours ? 0 : '<1') }} min</td><td>{{ number_format($metric->sample_count, 0, ',', '.') }}</td></tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        @endif
+                    </div>
+                    <div class="fc-metrics-table-wrap">
+                        <div class="fc-metrics-heading"><div><h4>Pendências por grupo</h4></div></div>
+                        @if (! $runtimeMetricsAvailable)
+                            <p class="fc-metrics-empty">Não foi possível consultar as tarefas ativas no Flowable. Os indicadores serão atualizados quando o motor estiver disponível.</p>
+                        @elseif ($pendingGroupMetrics->isEmpty())
+                            <p class="fc-metrics-empty">Não há tarefas ativas atribuídas a grupos no momento.</p>
+                        @else
+                            <table class="fc-metrics-table">
+                                <thead><tr><th>Grupo responsável</th><th>Pendentes</th><th>Atrasadas</th></tr></thead>
+                                <tbody>
+                                    @foreach ($pendingGroupMetrics as $metric)
+                                        <tr><th scope="row"><span>{{ $metric->group_name }}</span></th><td>{{ number_format($metric->pending_count, 0, ',', '.') }}</td><td>{{ number_format($metric->overdue_count, 0, ',', '.') }}</td></tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        @endif
+                    </div>
                 </div>
             </section>
             <section class="fc-create-card">

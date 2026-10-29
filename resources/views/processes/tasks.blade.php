@@ -10,11 +10,11 @@
     <div class="fc-list-page">
         <header class="fc-header">
             <a class="fc-brand" href="{{ route('master.processes.index') }}"><span class="fc-brand-mark">F</span><span><strong>FlowCore</strong><small>BPM</small></span></a>
-            <div class="fc-process-name"><span class="fc-eyebrow">RASCUNHO · V{{ $process->version }}</span><h1>{{ $process->name }}</h1></div>
-            <div class="fc-header-actions"><a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">Editor</a><a class="fc-button fc-button-secondary" href="{{ route('master.processes.form.edit', $process) }}">Formulário</a><form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form></div>
+            <div class="fc-process-name"><span class="fc-eyebrow">{{ $readOnly ? 'PUBLICADO · SOMENTE LEITURA' : 'RASCUNHO' }} · V{{ $process->version }}</span><h1>{{ $process->name }}</h1></div>
+            <div class="fc-header-actions"><a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">Editor</a><a class="fc-button fc-button-secondary" href="{{ route('master.processes.form.edit', $process) }}">Formulário</a>@include('shared.profile-link')<form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form></div>
         </header>
         <main class="fc-list-content">
-            <section class="fc-list-heading"><div><span class="fc-eyebrow">ROTEAMENTO DAS TAREFAS</span><h2>Responsável por etapa</h2><p>Direcione cada tarefa humana para um grupo ou para uma pessoa específica. A configuração será gravada no BPMN ao publicar.</p></div></section>
+            <section class="fc-list-heading"><div><span class="fc-eyebrow">{{ $readOnly ? 'CONSULTA DA VERSÃO PUBLICADA' : 'ROTEAMENTO DAS TAREFAS' }}</span><h2>Responsável por etapa</h2><p>{{ $readOnly ? 'Consulte os responsáveis, formulários e prazos definidos nesta publicação. Para alterar a configuração, crie uma nova versão.' : 'Direcione cada tarefa humana para um grupo ou para uma pessoa específica. A configuração será gravada no BPMN ao publicar.' }}</p></div></section>
             @if (session('status')) <div class="fc-flash-success" role="status">{{ session('status') }}</div> @endif
             @if ($errors->any()) <div class="fc-login-error" role="alert">{{ $errors->first() }}</div> @endif
             @if (count($userTasks) === 0)
@@ -24,6 +24,7 @@
             @else
                 <form method="POST" action="{{ route('master.processes.tasks.update', $process) }}" class="fc-task-assignment-form">
                     @csrf @method('PUT')
+                    <fieldset class="fc-readonly-fieldset" @disabled($readOnly) aria-label="Roteamento e configuração das tarefas">
                     @foreach ($userTasks as $taskId => $task)
                     @php($taskIndex = $loop->index)
                     @php($taskForm = $taskForms[$taskId] ?? ['kind' => 'work', 'fields' => []])
@@ -58,10 +59,10 @@
                             <div class="fc-task-form-heading"><div><strong>Campos desta etapa</strong><small>Esses campos são exibidos somente ao responsável configurado.</small></div><button type="button" data-add-form-field class="fc-button fc-button-secondary">Adicionar campo</button></div>
                             <div id="task-form-fields-{{ $taskIndex }}" data-form-fields>
                                 @foreach ($taskForm['fields'] ?? [] as $fieldIndex => $field)
-                                    @include('processes.partials.form-field', ['field' => $field, 'index' => $fieldIndex, 'namePrefix' => "task_forms[{$taskIndex}][fields]"])
+                                    @include('processes.partials.form-field', ['field' => $field, 'index' => $fieldIndex, 'namePrefix' => "task_forms[{$taskIndex}][fields]", 'errorPrefix' => "task_forms.{$taskIndex}.fields"])
                                 @endforeach
                             </div>
-                            <template data-form-field-template>@include('processes.partials.form-field', ['field' => [], 'index' => '__INDEX__', 'namePrefix' => "task_forms[{$taskIndex}][fields]"])</template>
+                            <template data-form-field-template>@include('processes.partials.form-field', ['field' => [], 'index' => '__INDEX__', 'namePrefix' => "task_forms[{$taskIndex}][fields]", 'errorPrefix' => "task_forms.{$taskIndex}.fields"])</template>
                         </div>
                         </div>
                     </details>
@@ -69,11 +70,14 @@
                     @php($hasApprovalTask = collect($userTasks)->contains(fn ($task, $taskId) => ($taskForms[$taskId]['kind'] ?? 'work') === 'approval') )
                     @if ($hasApprovalTask && count($gatewayBranches) > 0)
                         <section class="fc-gateway-routes">
-                            <div><span class="fc-eyebrow">RESULTADO DA APROVAÇÃO</span><h3>Saídas dos gateways exclusivos</h3><p>Associe cada saída à aprovação, rejeição ou tarefa para correção. Nas devoluções, o diretor escolhe a etapa no formulário da tarefa.</p></div>
+                            <div><span class="fc-eyebrow">RESULTADO DA APROVAÇÃO</span><h3>Saídas dos gateways de decisão</h3><p>Associe cada saída à aprovação, rejeição ou tarefa para correção. Um Gateway Inclusivo permite devolver a mais de um setor ao mesmo tempo.</p></div>
+                            @if ($hasInclusiveGateways)
+                                <div class="fc-note"><strong>Devolução para vários setores</strong><span>No editor, substitua o gateway após a aprovação por um Gateway Inclusivo. Use uma saída para cada área e conecte as tarefas de correção a outro Gateway Inclusivo antes da aprovação, para aguardar todas as áreas selecionadas.</span></div>
+                            @endif
                             @foreach ($gatewayBranches as $gatewayId => $gateway)
                                 @php($gatewayIndex = $loop->index)
                                 <article class="fc-gateway-card">
-                                    <h4>{{ $gateway['name'] }}</h4><code>{{ $gatewayId }}</code>
+                                    <h4>{{ $gateway['name'] }} <small>{{ $gateway['type'] === 'inclusive' ? 'Gateway inclusivo' : 'Gateway exclusivo' }}</small></h4><code>{{ $gatewayId }}</code>
                                     @foreach ($gateway['flows'] as $flowIndex => $flow)
                                         <div class="fc-gateway-flow">
                                             <span>{{ $flow['name'] }} <small>({{ $flow['id'] }})</small></span>
@@ -98,7 +102,8 @@
                     @elseif ($hasApprovalTask)
                         <div class="fc-note"><strong>Decisão sem desvio no diagrama</strong><span>Para seguir caminhos diferentes em caso de aprovação e rejeição, adicione um Gateway Exclusivo com pelo menos duas saídas e volte a esta configuração.</span></div>
                     @endif
-                    <div class="fc-form-builder-actions"><a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">Voltar ao editor</a><button class="fc-button fc-button-primary" type="submit">Salvar equipes</button></div>
+                    </fieldset>
+                    <div class="fc-form-builder-actions"><a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">Voltar ao editor</a>@unless ($readOnly)<button class="fc-button fc-button-primary" type="submit">Salvar equipes</button>@endunless</div>
                 </form>
             @endif
         </main>

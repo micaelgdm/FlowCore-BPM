@@ -43,6 +43,28 @@ class FlowableClient
         return is_array($response['data'] ?? null) ? $response['data'] : [];
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function allActiveTasks(int $maximum = 5000): array
+    {
+        $tasks = [];
+        $pageSize = 500;
+
+        while (count($tasks) < $maximum) {
+            $response = $this->client()->get('runtime/tasks', [
+                'size' => min($pageSize, $maximum - count($tasks)),
+                'start' => count($tasks),
+            ])->throw()->json();
+            $page = is_array($response['data'] ?? null) ? $response['data'] : [];
+            $tasks = [...$tasks, ...$page];
+
+            if (count($page) < $pageSize || $page === []) {
+                break;
+            }
+        }
+
+        return $tasks;
+    }
+
     public function claimTask(string $taskId, string $assignee): bool
     {
         try {
@@ -122,11 +144,42 @@ class FlowableClient
 
     public function processInstanceIsActive(string $processInstanceId): bool
     {
-        $response = $this->client()->get('runtime/process-instances', ['id' => $processInstanceId])
-            ->throw()
-            ->json();
+        return $this->processInstanceStatus($processInstanceId) === 'running';
+    }
 
-        return ($response['total'] ?? 0) > 0;
+    /** Returns null when the engine cannot confirm the instance in runtime or history. */
+    public function processInstanceStatus(string $processInstanceId): ?string
+    {
+        $client = $this->client();
+        $runtime = $client->get('runtime/process-instances', ['id' => $processInstanceId])->throw()->json();
+
+        if (($runtime['total'] ?? 0) > 0) {
+            return 'running';
+        }
+
+        $history = $this->historicProcessInstance($processInstanceId);
+
+        if (! is_array($history) || ! filled($history['endTime'] ?? null)) {
+            return null;
+        }
+
+        return filled($history['deleteReason'] ?? null) ? 'cancelled' : 'completed';
+    }
+
+    /** @return array<string, mixed>|null */
+    public function historicProcessInstance(string $processInstanceId): ?array
+    {
+        try {
+            $history = $this->client()->get("history/historic-process-instances/{$processInstanceId}")->throw()->json();
+
+            return is_array($history) ? $history : null;
+        } catch (RequestException $exception) {
+            if ($exception->response->status() === 404) {
+                return null;
+            }
+
+            throw $exception;
+        }
     }
 
     /** @param array<string, mixed> $formData

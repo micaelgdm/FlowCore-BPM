@@ -10,6 +10,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable(['uuid', 'idempotency_key', 'process_definition_id', 'started_by', 'flowable_process_instance_id', 'status', 'form_data'])]
 class ProcessInstance extends Model
 {
+    public function displayId(): string
+    {
+        return 'SOL-'.str_pad((string) $this->getKey(), 6, '0', STR_PAD_LEFT);
+    }
+
     protected function casts(): array
     {
         return ['form_data' => 'array'];

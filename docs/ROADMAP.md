@@ -31,6 +31,7 @@
 - [x] Validar respostas no servidor e iniciar instâncias Flowable pelo portal autorizado.
 - [x] Registrar respostas e estado local; impedir reenvio duplicado com chave idempotente.
 - [x] Mostrar catálogo, formulário e solicitações próprias para usuários finais.
+- [x] Separar Minhas solicitações do catálogo de processos e paginar a lista com 15 itens por página.
 - [x] Separar permissões para consultar, solicitar e aprovar processos.
 - [x] Atribuir a tarefa humana ao aprovador e concluir a aprovação com justificativa e histórico.
 - [x] Cadastrar grupos de trabalho e associar usuários ativos às equipes.
@@ -58,15 +59,19 @@
 - [x] Publicar um rascunho BPMN pelo editor, persistir os IDs Flowable e recuperar a publicação por um nome determinístico sem duplicá-la.
 - [x] Iniciar instâncias pelo portal com chave de negócio idempotente e variáveis do formulário.
 - [ ] Integrar teste real de iniciar uma solicitação, atribuir/aprovar uma tarefa humana e recuperar seu estado depois de reiniciar o motor.
+- [x] Reconciliar sob demanda o status das solicitações em andamento com runtime/histórico do Flowable ao abrir detalhes e a lista do solicitante; exibir encerramento registrado no motor.
+- [x] Agendar reconciliação incremental do status das solicitações com o Flowable, em lotes limitados e protegidos contra atualização concorrente.
 - [x] Criar nova versão editável e alternar a publicação ativa sem alterar instâncias existentes; o portal inicia somente na versão ativa.
 
 ## Fases seguintes
 
-4. Formulários dinâmicos — versão inicial concluída; avançar validações e associação por etapa.
+4. Formulários dinâmicos — formulários iniciais e por etapa aceitam anexos privados e campos condicionais, com validação no navegador/servidor e autorização de download.
 5. Aprovações e regras — aprovação, rejeição com retorno configurável à etapa de preenchimento e retorno à aprovação implementados e validados no Flowable para o exemplo; ampliar cenários de execução.
-6. Notificações — contador de tarefas pendentes no portal concluído; avançar canais e alertas adicionais.
-7. Auditoria, prazos, indicadores e recursos corporativos — prazos por tarefa, trilha de auditoria, indicadores básicos e acompanhamento da etapa atual pelo solicitante implementados; avançar métricas de tempo e produtividade.
+6. Notificações — contador, e-mail assíncrono de nova tarefa, alertas de prazo próximo/vencido, avisos de aprovação/devolução/rejeição/conclusão ao solicitante e monitoramento Master do outbox com reenvio manual implementados.
+7. Auditoria, prazos, indicadores e recursos corporativos — prazos por tarefa, trilha de auditoria, acompanhamento da etapa atual e métricas de duração média por etapa, atrasos e pendências por grupo implementados.
 8. Implantação interna.
+
+Recursos recentes: gateways inclusivos podem devolver para múltiplas áreas em paralelo; formulários aceitam anexos privados e campos condicionais; o painel Master apresenta tempos por etapa, atrasos e pendências por grupo; páginas de Formulário/Equipes de versões publicadas são somente para leitura. O ciclo de devolução multiárea ainda precisa de validação ponta a ponta no Flowable.
 
 ## Ambiente e comandos
 
