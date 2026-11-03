@@ -12,12 +12,25 @@
         <label class="fc-form-field"><span>Identificador (sem espaços)</span><input name="{{ $fieldNamePrefix }}[{{ $index }}][key]" value="{{ $field['key'] ?? '' }}" placeholder="centro_custo" pattern="[a-z][a-z0-9_]{0,49}" data-field-key><small>Use letras minúsculas, números e _.</small></label>
         <label class="fc-form-field"><span>Nome exibido</span><input name="{{ $fieldNamePrefix }}[{{ $index }}][label]" value="{{ $field['label'] ?? '' }}" placeholder="Centro de custo" maxlength="100" data-field-label></label>
         <label class="fc-form-field"><span>Tipo de campo</span><select name="{{ $fieldNamePrefix }}[{{ $index }}][type]" data-field-type>
-            @foreach (['text' => 'Texto curto', 'textarea' => 'Texto longo', 'number' => 'Número', 'date' => 'Data', 'select' => 'Lista de opções', 'boolean' => 'Sim ou não', 'file' => 'Anexo'] as $value => $label)
+            @foreach (['text' => 'Texto curto', 'textarea' => 'Texto longo', 'number' => 'Número', 'date' => 'Data', 'select' => 'Lista de opções', 'multiselect' => 'Seleção múltipla', 'user' => 'Usuário', 'group' => 'Grupo', 'calculated' => 'Número calculado', 'boolean' => 'Sim ou não', 'file' => 'Anexo'] as $value => $label)
                 <option value="{{ $value }}" @selected(($field['type'] ?? 'text') === $value)>{{ $label }}</option>
             @endforeach
         </select></label>
         <label class="fc-form-required"><input type="checkbox" name="{{ $fieldNamePrefix }}[{{ $index }}][required]" value="1" @checked($field['required'] ?? false)> Obrigatório</label>
-        <label class="fc-form-field fc-form-field-options" data-field-options @if (($field['type'] ?? 'text') !== 'select') hidden @endif><span>Opções (uma por linha)</span><textarea name="{{ $fieldNamePrefix }}[{{ $index }}][options]" rows="4" maxlength="2000" placeholder="Operações&#10;Financeiro&#10;Tecnologia">{{ is_array($field['options'] ?? null) ? implode("\n", $field['options']) : ($field['options'] ?? '') }}</textarea></label>
+        @if ($allowEditability ?? false)
+            <input type="hidden" name="{{ $fieldNamePrefix }}[{{ $index }}][editable]" value="0">
+            <label class="fc-form-required"><input type="checkbox" name="{{ $fieldNamePrefix }}[{{ $index }}][editable]" value="1" @checked($field['editable'] ?? true)> Pode editar nesta etapa</label>
+            <small class="fc-field-editability-hint">Se desmarcado, usa o valor com o mesmo identificador enviado na solicitação ou em uma etapa anterior.</small>
+        @endif
+        <label class="fc-form-field fc-form-field-options" data-field-options @if (! in_array(($field['type'] ?? 'text'), ['select', 'multiselect'], true)) hidden @endif><span>Opções (uma por linha)</span><textarea name="{{ $fieldNamePrefix }}[{{ $index }}][options]" rows="4" maxlength="2000" placeholder="Operações&#10;Financeiro&#10;Tecnologia">{{ is_array($field['options'] ?? null) ? implode("\n", $field['options']) : ($field['options'] ?? '') }}</textarea></label>
+        <div class="fc-form-field fc-form-source-note" data-field-source-note @if (! in_array(($field['type'] ?? 'text'), ['user', 'group'], true)) hidden @endif><span>Origem das opções</span><small data-field-source-copy>As opções vêm dos cadastros ativos do sistema.</small></div>
+        @php($calculation = $field['calculation'] ?? [])
+        <div class="fc-form-calculation" data-field-calculation @if (($field['type'] ?? 'text') !== 'calculated') hidden @endif>
+            <label class="fc-form-field"><span>Primeiro número</span><select name="{{ $fieldNamePrefix }}[{{ $index }}][calculation][left]" data-calculation-source data-calculation-left><option value="">Selecione um campo numérico anterior</option>@if (filled($calculation['left'] ?? null))<option value="{{ $calculation['left'] }}" selected>{{ $calculation['left'] }}</option>@endif</select></label>
+            <label class="fc-form-field"><span>Operação</span><select name="{{ $fieldNamePrefix }}[{{ $index }}][calculation][operation]" data-calculation-operation><option value="add" @selected(($calculation['operation'] ?? 'add') === 'add')>Somar (+)</option><option value="subtract" @selected(($calculation['operation'] ?? '') === 'subtract')>Subtrair (−)</option><option value="multiply" @selected(($calculation['operation'] ?? '') === 'multiply')>Multiplicar (×)</option><option value="divide" @selected(($calculation['operation'] ?? '') === 'divide')>Dividir (÷)</option></select></label>
+            <label class="fc-form-field"><span>Segundo número</span><select name="{{ $fieldNamePrefix }}[{{ $index }}][calculation][right]" data-calculation-source data-calculation-right><option value="">Selecione um campo numérico anterior</option>@if (filled($calculation['right'] ?? null))<option value="{{ $calculation['right'] }}" selected>{{ $calculation['right'] }}</option>@endif</select></label>
+            <small>O resultado é calculado no formulário e conferido novamente ao salvar.</small>
+        </div>
     </div>
     <section class="fc-visibility-rules" data-visibility-rules>
         <label class="fc-form-field"><span>Condições de exibição do campo</span>
@@ -51,6 +64,9 @@
     </section>
     @foreach (['key', 'label', 'type', 'required', 'options', 'visible_when_mode', 'visible_when_match'] as $errorField)
         @error("{$fieldErrorPrefix}.{$index}.{$errorField}") <small class="fc-form-error">{{ $message }}</small> @enderror
+    @endforeach
+    @foreach (['left', 'right', 'operation'] as $calculationErrorField)
+        @error("{$fieldErrorPrefix}.{$index}.calculation.{$calculationErrorField}") <small class="fc-form-error">{{ $message }}</small> @enderror
     @endforeach
     @error("{$fieldErrorPrefix}.{$index}.conditions") <small class="fc-form-error">{{ $message }}</small> @enderror
 </fieldset>

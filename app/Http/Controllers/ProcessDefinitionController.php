@@ -39,8 +39,6 @@ class ProcessDefinitionController extends Controller
             ->selectRaw('COUNT(*) as total_count')
             ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as running_count', ['running'])
             ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as completed_count', ['completed'])
-            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as failed_count', ['failed'])
-            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as pending_start_count', ['starting'])
             ->first();
         $processMetrics = DB::table('process_definitions as definitions')
             ->leftJoin('process_instances as instances', 'instances.process_definition_id', '=', 'definitions.id')
@@ -48,7 +46,6 @@ class ProcessDefinitionController extends Controller
             ->selectRaw('COUNT(instances.id) as total_count')
             ->selectRaw('SUM(CASE WHEN instances.status = ? THEN 1 ELSE 0 END) as running_count', ['running'])
             ->selectRaw('SUM(CASE WHEN instances.status = ? THEN 1 ELSE 0 END) as completed_count', ['completed'])
-            ->selectRaw('SUM(CASE WHEN instances.status = ? THEN 1 ELSE 0 END) as failed_count', ['failed'])
             ->groupBy('definitions.family_uuid')
             ->orderBy('process_name')
             ->get();
@@ -91,6 +88,8 @@ class ProcessDefinitionController extends Controller
 
         $runtimeMetricsAvailable = true;
         $pendingGroupMetrics = collect();
+        $pendingTaskCount = 0;
+        $overdueTaskCount = 0;
         try {
             $activeTasks = $flowable->allActiveTasks();
             $instancesById = ProcessInstance::query()
@@ -109,6 +108,16 @@ class ProcessDefinitionController extends Controller
                     continue;
                 }
 
+                $schema = $instance->processDefinition->task_form_schemas[$taskKey] ?? [];
+                $dueAt = is_numeric($schema['sla_hours'] ?? null) && is_string($task['createTime'] ?? null)
+                    ? Carbon::parse($task['createTime'])->addHours((int) $schema['sla_hours'])->setTimezone(config('app.display_timezone'))
+                    : null;
+
+                $pendingTaskCount++;
+                if ($dueAt && $dueAt->isPast()) {
+                    $overdueTaskCount++;
+                }
+
                 $groupId = $instance->processDefinition->task_group_assignments[$taskKey] ?? null;
                 if (! is_numeric($groupId)) {
                     continue;
@@ -116,10 +125,6 @@ class ProcessDefinitionController extends Controller
 
                 $groupId = (int) $groupId;
                 $group = $groupsById->get($groupId);
-                $schema = $instance->processDefinition->task_form_schemas[$taskKey] ?? [];
-                $dueAt = is_numeric($schema['sla_hours'] ?? null) && is_string($task['createTime'] ?? null)
-                    ? Carbon::parse($task['createTime'])->addHours((int) $schema['sla_hours'])->setTimezone(config('app.display_timezone'))
-                    : null;
 
                 $groupTotals[$groupId] ??= [
                     'group_name' => $group?->name ?? "Grupo removido #{$groupId}",
@@ -140,6 +145,8 @@ class ProcessDefinitionController extends Controller
         } catch (ConnectionException|RequestException|RuntimeException $exception) {
             report($exception);
             $runtimeMetricsAvailable = false;
+            $pendingTaskCount = null;
+            $overdueTaskCount = null;
         }
 
         return view('processes.index', [
@@ -149,6 +156,8 @@ class ProcessDefinitionController extends Controller
             'processMetrics' => $processMetrics,
             'stepMetrics' => $stepMetrics,
             'pendingGroupMetrics' => $pendingGroupMetrics,
+            'pendingTaskCount' => $pendingTaskCount,
+            'overdueTaskCount' => $overdueTaskCount,
             'runtimeMetricsAvailable' => $runtimeMetricsAvailable,
         ]);
     }

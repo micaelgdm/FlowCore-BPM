@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    @include('shared.favicon')
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $process->name }} · FlowCore BPM</title>
     @vite(['resources/css/app.css', 'resources/css/bpmn-editor.css', 'resources/js/app.js'])
@@ -10,58 +11,63 @@
 <body class="flowcore-page">
     <div class="fc-editor">
         <header class="fc-header">
-            <a class="fc-brand" href="{{ route('master.processes.index') }}" aria-label="FlowCore BPM processos">
-                <span class="fc-brand-mark">F</span>
-                <span><strong>FlowCore</strong><small>BPM</small></span>
+            <a class="fc-brand" href="{{ route('master.processes.index') }}" aria-label="Grupo Doce Mel — Processos">
+                @include('shared.brand-logo')
             </a>
             <div class="fc-process-name">
                 <span class="fc-eyebrow">{{ $process->status === 'published' ? 'PUBLICADO' : 'RASCUNHO' }} · V{{ $process->version }}</span>
                 <h1>{{ $process->name }}</h1>
             </div>
             <div class="fc-header-actions">
-                <a class="fc-button fc-button-secondary" href="{{ route('master.processes.form.edit', $process) }}">Formulário</a>
-                <a class="fc-button fc-button-secondary" href="{{ route('master.processes.tasks.edit', $process) }}">Equipes</a>
-                @if ($process->status === 'draft')
-                    <button id="open-bpmn" class="fc-button fc-button-secondary" type="button">Abrir BPMN</button>
-                @endif
+                <details class="fc-nav-dropdown fc-process-actions-dropdown">
+                    <summary class="fc-button fc-button-secondary">@include('shared.nav-icon', ['icon' => 'editor'])Ações do processo<span class="fc-nav-chevron" aria-hidden="true"></span></summary>
+                    <div class="fc-nav-dropdown-menu">
+                        <span class="fc-nav-dropdown-heading">Configuração</span>
+                        <a href="{{ route('master.processes.form.edit', $process) }}">@include('shared.nav-icon', ['icon' => 'form'])Formulário</a>
+                        <a href="{{ route('master.processes.tasks.edit', $process) }}">@include('shared.nav-icon', ['icon' => 'groups'])Equipes</a>
+                        @if ($process->status !== 'draft')
+                            <a href="{{ route('master.processes.access.edit', $process) }}">@include('shared.nav-icon', ['icon' => 'access'])Acessos</a>
+                        @endif
+                        @if ($process->status === 'draft')
+                            <span class="fc-nav-dropdown-heading">Diagrama</span>
+                            <button id="open-bpmn" type="button">@include('shared.nav-icon', ['icon' => 'open'])Abrir BPMN</button>
+                            <button id="export-bpmn" type="button">@include('shared.nav-icon', ['icon' => 'export'])Exportar XML</button>
+                            <span class="fc-nav-dropdown-heading">Publicação</span>
+                            <button id="save-bpmn" type="button">@include('shared.nav-icon', ['icon' => 'save'])Salvar rascunho</button>
+                            <button id="publish-bpmn" class="fc-nav-action-primary" type="button">@include('shared.nav-icon', ['icon' => 'publish'])Publicar versão</button>
+                            @if ($process->version > 1)
+                                <form method="POST" action="{{ route('master.processes.versions.destroy', $process) }}" data-confirm="Descartar a versão V{{ $process->version }}? Este rascunho será removido. A versão publicada continuará intacta.">
+                                    @csrf @method('DELETE')
+                                    <button class="fc-nav-action-danger" type="submit">@include('shared.nav-icon', ['icon' => 'discard'])Descartar versão</button>
+                                </form>
+                            @endif
+                        @else
+                            <span class="fc-nav-dropdown-heading">Publicação</span>
+                            @if ($process->is_active)
+                                <form method="POST" action="{{ route('master.processes.versions.store', $process) }}">
+                                    @csrf
+                                    <button class="fc-nav-action-primary" type="submit">Criar nova versão</button>
+                                </form>
+                                <span class="fc-nav-dropdown-note">Em uso · publicado em {{ $process->published_at?->copy()->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i') }}</span>
+                            @else
+                                <form method="POST" action="{{ route('master.processes.activate', $process) }}" data-confirm="Ativar V{{ $process->version }} para novas solicitações? As solicitações existentes continuam na versão em que começaram.">
+                                    @csrf
+                                    <button class="fc-nav-action-primary" type="submit">Ativar esta versão</button>
+                                </form>
+                                <span class="fc-nav-dropdown-note">Versão substituída · publicada em {{ $process->published_at?->copy()->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i') }}</span>
+                            @endif
+                        @endif
+                    </div>
+                </details>
                 <input id="bpmn-file" type="file" accept=".bpmn,.xml,application/xml,text/xml" hidden>
-                @if ($process->status === 'draft')
-                    <button id="export-bpmn" class="fc-button fc-button-secondary" type="button">Exportar XML</button>
-                    <button id="save-bpmn" class="fc-button fc-button-secondary" type="button">Salvar rascunho</button>
-                    <button id="publish-bpmn" class="fc-button fc-button-primary" type="button">Publicar versão</button>
-                    @if ($process->version > 1)
-                        <form method="POST" action="{{ route('master.processes.versions.destroy', $process) }}" data-confirm="Descartar a versão V{{ $process->version }}? Este rascunho será removido. A versão publicada continuará intacta.">
-                            @csrf @method('DELETE')
-                            <button class="fc-button fc-button-danger" type="submit">Descartar versão</button>
-                        </form>
-                    @endif
-                @else
-                    <a class="fc-button fc-button-secondary" href="{{ route('master.processes.access.edit', $process) }}">Acessos</a>
-                    @if ($process->is_active)
-                        <form method="POST" action="{{ route('master.processes.versions.store', $process) }}">
-                            @csrf
-                            <button class="fc-button fc-button-primary" type="submit">Criar nova versão</button>
-                        </form>
-                        <span class="fc-published-pill">Em uso · publicado em {{ $process->published_at?->copy()->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i') }}</span>
-                    @else
-                        <form method="POST" action="{{ route('master.processes.activate', $process) }}" data-confirm="Ativar V{{ $process->version }} para novas solicitações? As solicitações existentes continuam na versão em que começaram.">
-                            @csrf
-                            <button class="fc-button fc-button-primary" type="submit">Ativar esta versão</button>
-                        </form>
-                        <span class="fc-published-pill">Versão substituída · publicada em {{ $process->published_at?->copy()->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i') }}</span>
-                    @endif
-                @endif
-                @include('shared.profile-link')
-                <form method="POST" action="{{ route('logout') }}">
-                    @csrf
-                    <button class="fc-button fc-button-secondary" type="submit">Sair</button>
-                </form>
+                @include('shared.master-navigation')
             </div>
         </header>
 
         @if (session('status'))
             <div class="fc-editor-flash" role="status">{{ session('status') }}</div>
         @endif
+        <div id="draft-save-feedback" class="fc-editor-toast" role="status" aria-live="polite" hidden></div>
         <div id="publish-feedback" class="fc-editor-flash fc-editor-flash-error" role="alert" aria-live="assertive" tabindex="-1" hidden></div>
 
         <main class="fc-main">
@@ -105,6 +111,7 @@
                 </div>
                 <form id="element-properties-form" class="fc-element-properties-form" hidden>
                     <div class="fc-property-element-type"><span class="fc-eyebrow">TIPO DE ELEMENTO</span><strong id="selected-element-type"></strong></div>
+                    <p id="selected-element-description" class="fc-property-description" aria-live="polite"></p>
                     <div class="fc-form-field"><label for="selected-element-name">Nome exibido</label><input id="selected-element-name" name="name" maxlength="120" autocomplete="off" @disabled($process->status === 'published')></div>
                     <div id="task-instructions-field" class="fc-form-field" hidden><label for="selected-task-instructions">Instruções para quem executa</label><textarea id="selected-task-instructions" rows="5" maxlength="2000" placeholder="Explique o que o grupo deve fazer nesta etapa." @disabled($process->status === 'published')></textarea></div>
                     <div class="fc-property-element-id"><span class="fc-eyebrow">IDENTIFICADOR BPMN</span><code id="selected-element-id"></code></div>

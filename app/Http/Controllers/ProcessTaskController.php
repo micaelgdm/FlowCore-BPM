@@ -3,12 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\ProcessInstance;
+use App\Models\ProcessGroup;
 use App\Models\ProcessTaskDecision;
+use App\Models\TaskDelegationTransfer;
 use App\Models\User;
 use App\Services\FormAttachmentService;
 use App\Services\FlowableClient;
 use App\Services\TaskAssignmentNotificationService;
 use App\Support\FormFieldCondition;
+use App\Support\FormFieldCalculation;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Database\QueryException;
@@ -18,6 +21,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -27,7 +31,12 @@ class ProcessTaskController extends Controller
 {
     public function index(Request $request, FlowableClient $flowable): View
     {
+        $formUsers = User::query()->where('is_active', true)->where('role', '!=', 'master')->orderBy('name')->get(['id', 'name', 'email']);
+        $formGroups = ProcessGroup::query()->orderBy('name')->get(['id', 'name']);
+
         try {
+            Artisan::call('flowcore:apply-task-delegations', ['--delegate' => (string) $request->user()->id]);
+
             $assignee = PortalProcessController::flowableAssignee($request->user()->id);
             $activeInstances = ProcessInstance::query()
                 ->with('processDefinition.authorizedUsers')
@@ -78,7 +87,11 @@ class ProcessTaskController extends Controller
                 }
             }
 
-            $engineTasks = collect($engineTasks)->unique('id')->values()->all();
+            $engineTasks = collect($engineTasks)
+                ->unique('id')
+                ->sortByDesc(fn (array $task): int => self::taskCreatedAtTimestamp($task['createTime'] ?? null))
+                ->values()
+                ->all();
             $processInstanceIds = collect($engineTasks)->pluck('processInstanceId')->filter()->unique()->all();
             $instances = ProcessInstance::query()
                 ->with(['processDefinition.authorizedUsers', 'starter'])
@@ -92,6 +105,11 @@ class ProcessTaskController extends Controller
                 ->orderBy('id')
                 ->get()
                 ->groupBy('process_instance_id');
+            $delegationTransfers = TaskDelegationTransfer::query()
+                ->with('originalUser')
+                ->whereIn('flowable_task_id', collect($engineTasks)->pluck('id')->filter()->values())
+                ->get()
+                ->keyBy('flowable_task_id');
 
             $tasks = collect($engineTasks)->filter(function (array $task) use ($instances, $request): bool {
                 $instance = $instances->get($task['processInstanceId'] ?? '');
@@ -101,7 +119,7 @@ class ProcessTaskController extends Controller
                     && is_string($task['processInstanceId'] ?? null)
                     && $instance instanceof ProcessInstance
                     && self::userCanAccessTask($instance, $task, $request->user());
-            })->map(function (array $task) use ($instances, $decisionsByInstance): array {
+            })->map(function (array $task) use ($instances, $decisionsByInstance, $delegationTransfers): array {
                 $instance = $instances->get($task['processInstanceId']);
                 $schema = self::schemaForTask($instance, $task);
                 $showProcessData = $schema['show_process_data'] ?? (($schema['kind'] ?? null) === 'approval');
@@ -157,7 +175,11 @@ class ProcessTaskController extends Controller
                     'schema' => $schema,
                     'due_at' => $dueAt,
                     'is_overdue' => $dueAt?->isPast() ?? false,
+                    'delegated_from' => $delegationTransfers->get($task['id'])?->originalUser?->name,
                     'previous_data' => $previousData,
+                    'read_only_data' => $instance
+                        ? self::readOnlyFieldData($instance, $schema['fields'] ?? [], $decisions)
+                        : [],
                     'return_notice' => $returnNotice ? [
                         'justification' => $returnNotice->justification,
                         'actor' => $returnNotice->actor?->name ?? 'Aprovador',
@@ -169,11 +191,11 @@ class ProcessTaskController extends Controller
                 ];
             })->values();
 
-            return view('portal.tasks', ['tasks' => $tasks, 'unavailable' => false]);
+            return view('portal.tasks', ['tasks' => $tasks, 'unavailable' => false, 'formUsers' => $formUsers, 'formGroups' => $formGroups]);
         } catch (ConnectionException|RequestException|RuntimeException $exception) {
             report($exception);
 
-            return view('portal.tasks', ['tasks' => collect(), 'unavailable' => true]);
+            return view('portal.tasks', ['tasks' => collect(), 'unavailable' => true, 'formUsers' => $formUsers, 'formGroups' => $formGroups]);
         }
     }
 
@@ -207,6 +229,10 @@ class ProcessTaskController extends Controller
             ->firstOrFail();
         $hasPermission = self::userCanAccessTask($instance, $task, $request->user());
         abort_unless($hasPermission, 403);
+        $delegatedFromUserId = TaskDelegationTransfer::query()
+            ->where('flowable_task_id', $taskId)
+            ->where('delegate_user_id', $request->user()->id)
+            ->value('original_user_id');
         $schema = self::schemaForTask($instance, $task);
         $taskKey = $task['taskDefinitionKey'] ?? null;
         $previousDecision = is_string($taskKey)
@@ -215,12 +241,35 @@ class ProcessTaskController extends Controller
         $previousData = $previousDecision?->form_data ?? [];
         unset($previousData['return_to']);
         $schema['previous_data'] = $previousData;
+        $taskHistory = ProcessTaskDecision::query()
+            ->where('process_instance_id', $instance->id)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get();
+        $readOnlyData = self::readOnlyFieldData($instance, $schema['fields'] ?? [], $taskHistory);
+        $schema['read_only_data'] = $readOnlyData;
+        $taskData = (array) $request->input('task_data', []);
+        foreach ($schema['fields'] ?? [] as $field) {
+            $key = $field['key'] ?? null;
+            if (($field['editable'] ?? true) === false
+                && is_string($key)
+                && array_key_exists($key, $readOnlyData)
+                && FormFieldCondition::isVisible($field, $taskData)) {
+                $value = $readOnlyData[$key];
+                if (($field['type'] ?? null) === 'file') {
+                    unset($taskData[$key]);
+                } else {
+                    $taskData[$key] = is_array($value) && isset($value['id'], $value['label']) ? $value['id'] : $value;
+                }
+            }
+        }
+        $request->merge(['task_data' => array_replace($taskData, FormFieldCalculation::calculate($schema['fields'] ?? [], $taskData))]);
         $data = self::validateTaskSubmission($request, $schema);
         $decisionValue = ($schema['kind'] ?? 'approval') === 'approval' ? $data['decision'] : 'completed';
         $taskFormData = self::normalizeTaskData(
             $schema['fields'] ?? [],
             $data['task_data'] ?? [],
-            $previousData,
+            array_replace($previousData, $readOnlyData),
             "task-{$instance->uuid}-".hash('sha256', $taskId),
             $attachments,
         );
@@ -241,7 +290,7 @@ class ProcessTaskController extends Controller
         }
 
         try {
-            $decision = DB::transaction(function () use ($request, $taskId, $task, $instance, $data, $taskFormData, $decisionValue, $taskStartedAt): ProcessTaskDecision {
+            $decision = DB::transaction(function () use ($request, $taskId, $task, $instance, $data, $taskFormData, $decisionValue, $taskStartedAt, $delegatedFromUserId): ProcessTaskDecision {
                 $decision = ProcessTaskDecision::query()->where('flowable_task_id', $taskId)->lockForUpdate()->first();
 
                 if ($decision) {
@@ -253,6 +302,7 @@ class ProcessTaskController extends Controller
 
                     $decision->forceFill([
                         'task_definition_key' => is_string($task['taskDefinitionKey'] ?? null) ? $task['taskDefinitionKey'] : null,
+                        'delegated_from_user_id' => $delegatedFromUserId,
                         'decision' => $decisionValue,
                         'justification' => $data['justification'] ?? '',
                         'form_data' => $taskFormData,
@@ -268,6 +318,7 @@ class ProcessTaskController extends Controller
                     'task_name' => is_string($task['name'] ?? null) ? $task['name'] : 'Tarefa de aprovação',
                     'task_definition_key' => is_string($task['taskDefinitionKey'] ?? null) ? $task['taskDefinitionKey'] : null,
                     'decided_by' => $request->user()->id,
+                    'delegated_from_user_id' => $delegatedFromUserId,
                     'decision' => $decisionValue,
                     'justification' => $data['justification'] ?? '',
                     'form_data' => $taskFormData,
@@ -301,6 +352,17 @@ class ProcessTaskController extends Controller
             }
 
             $decision->forceFill(['flowable_completed_at' => now()])->save();
+            if ($delegatedFromUserId !== null) {
+                TaskDelegationTransfer::query()->where('flowable_task_id', $taskId)->update(['completed_at' => now()]);
+            }
+        }
+
+        try {
+            // Completing a task may create the next activity. Apply active
+            // substitutions now so the new assignee is correct immediately.
+            Artisan::call('flowcore:apply-task-delegations');
+        } catch (\Throwable $exception) {
+            report($exception);
         }
 
         try {
@@ -491,6 +553,35 @@ class ProcessTaskController extends Controller
         return $steps;
     }
 
+    /** @param array<int, array<string, mixed>> $fields
+     *  @param iterable<ProcessTaskDecision> $decisions
+     *  @return array<string, mixed>
+     */
+    private static function readOnlyFieldData(ProcessInstance $instance, array $fields, iterable $decisions): array
+    {
+        $available = $instance->form_data ?? [];
+        foreach ($decisions as $decision) {
+            if ($decision->decision === 'rejected') {
+                continue;
+            }
+            foreach ($decision->form_data ?? [] as $key => $value) {
+                if ($key !== 'return_to') {
+                    $available[$key] = $value;
+                }
+            }
+        }
+
+        $readOnly = [];
+        foreach ($fields as $field) {
+            $key = $field['key'] ?? null;
+            if (($field['editable'] ?? true) === false && is_string($key) && array_key_exists($key, $available)) {
+                $readOnly[$key] = $available[$key];
+            }
+        }
+
+        return $readOnly;
+    }
+
     /** @param array{kind: string, fields: array<int, array<string, mixed>>} $schema
      *  @return array<string, mixed>
      */
@@ -522,7 +613,7 @@ class ProcessTaskController extends Controller
                 continue;
             }
 
-            $previousAttachment = $schema['previous_data'][$field['key']]['attachment_id'] ?? null;
+            $previousAttachment = $schema['read_only_data'][$field['key']]['attachment_id'] ?? $schema['previous_data'][$field['key']]['attachment_id'] ?? null;
             $presence = ($field['required'] ?? false) && ! ($field['type'] === 'file' && filled($previousAttachment)) ? 'required' : 'nullable';
             $typeRules = match ($field['type'] ?? null) {
                 'text' => ['string', 'max:2000'],
@@ -530,11 +621,18 @@ class ProcessTaskController extends Controller
                 'number' => ['numeric', 'between:-999999999999,999999999999'],
                 'date' => ['date_format:Y-m-d'],
                 'select' => [Rule::in($field['options'] ?? [])],
+                'multiselect' => ['array', ...((($field['required'] ?? false) ? ['min:1'] : []))],
+                'user' => ['integer', Rule::exists('users', 'id')->where('is_active', true)->where('role', '!=', 'master')],
+                'group' => ['integer', Rule::exists('process_groups', 'id')],
+                'calculated' => ['numeric', 'between:-999999999999,999999999999'],
                 'boolean' => ['boolean'],
                 'file' => ['file', 'max:10240', 'mimes:pdf,doc,docx,xls,xlsx,csv,txt,jpg,jpeg,png,webp'],
                 default => ['prohibited'],
             };
             $rules["task_data.{$field['key']}"] = [$presence, ...$typeRules];
+            if (($field['type'] ?? null) === 'multiselect') {
+                $rules["task_data.{$field['key']}.*"] = ['string', Rule::in($field['options'] ?? [])];
+            }
         }
 
         $validator = Validator::make($request->all(), $rules);
@@ -577,13 +675,31 @@ class ProcessTaskController extends Controller
                 continue;
             }
 
+            if (($field['editable'] ?? true) === false && array_key_exists($key, $previousData)) {
+                $values[$key] = $previousData[$key];
+                continue;
+            }
+
             if ($value === null || $value === '') {
+                continue;
+            }
+
+            if ($field['type'] === 'user') {
+                $selectedUser = User::query()->findOrFail($value);
+                $values[$key] = ['id' => $selectedUser->id, 'label' => $selectedUser->name.' · '.$selectedUser->email];
+                continue;
+            }
+            if ($field['type'] === 'group') {
+                $selectedGroup = ProcessGroup::query()->findOrFail($value);
+                $values[$key] = ['id' => $selectedGroup->id, 'label' => $selectedGroup->name];
                 continue;
             }
 
             $values[$key] = match ($field['type']) {
                 'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'number' => str_contains((string) $value, '.') ? (float) $value : (int) $value,
+                'calculated' => (float) $value,
+                'multiselect' => array_values((array) $value),
                 default => $value,
             };
         }
@@ -617,7 +733,15 @@ class ProcessTaskController extends Controller
         }
 
         foreach ($formData as $key => $value) {
-            if ($key === 'return_to' || is_array($value)) {
+            if ($key === 'return_to') {
+                continue;
+            }
+
+            if (is_array($value) && isset($value['id'], $value['label'])) {
+                $value = (int) $value['id'];
+            } elseif (is_array($value) && array_is_list($value)) {
+                $value = json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+            } elseif (is_array($value)) {
                 continue;
             }
 
@@ -631,6 +755,19 @@ class ProcessTaskController extends Controller
         }
 
         return $variables;
+    }
+
+    private static function taskCreatedAtTimestamp(mixed $createdAt): int
+    {
+        if (! is_string($createdAt) || trim($createdAt) === '') {
+            return 0;
+        }
+
+        try {
+            return Carbon::parse($createdAt)->getTimestamp();
+        } catch (\Throwable) {
+            return 0;
+        }
     }
 
     public static function pendingCountFor(User $user, FlowableClient $flowable): int
@@ -679,12 +816,23 @@ class ProcessTaskController extends Controller
     /** @param array<string, mixed> $task */
     public static function userCanAccessTask(ProcessInstance $instance, array $task, User $user): bool
     {
+        $transfer = is_string($task['id'] ?? null)
+            ? TaskDelegationTransfer::query()->where('flowable_task_id', $task['id'])->first()
+            : null;
+        if ($transfer) {
+            return $transfer->delegate_user_id === $user->id;
+        }
+
         $taskKey = $task['taskDefinitionKey'] ?? null;
         $assignedUserId = is_string($taskKey)
             ? ($instance->processDefinition->task_user_assignments[$taskKey] ?? null)
             : null;
         if (is_numeric($assignedUserId)) {
-            return (int) $assignedUserId === $user->id;
+            if ((int) $assignedUserId === $user->id) {
+                return true;
+            }
+
+            return false;
         }
 
         $groupId = self::groupIdForTask($instance, $task);

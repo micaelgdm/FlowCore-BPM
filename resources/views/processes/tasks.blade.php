@@ -3,15 +3,16 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    @include('shared.favicon')
     <title>Responsáveis das tarefas · {{ $process->name }} · FlowCore BPM</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="flowcore-page">
     <div class="fc-list-page">
         <header class="fc-header">
-            <a class="fc-brand" href="{{ route('master.processes.index') }}"><span class="fc-brand-mark">F</span><span><strong>FlowCore</strong><small>BPM</small></span></a>
+            <a class="fc-brand" href="{{ route('master.processes.index') }}">@include('shared.brand-logo')</a>
             <div class="fc-process-name"><span class="fc-eyebrow">{{ $readOnly ? 'PUBLICADO · SOMENTE LEITURA' : 'RASCUNHO' }} · V{{ $process->version }}</span><h1>{{ $process->name }}</h1></div>
-            <div class="fc-header-actions"><a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">Editor</a><a class="fc-button fc-button-secondary" href="{{ route('master.processes.form.edit', $process) }}">Formulário</a>@include('shared.profile-link')<form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form></div>
+            <div class="fc-header-actions"><a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">@include('shared.nav-icon', ['icon' => 'editor'])Editor</a><a class="fc-button fc-button-secondary" href="{{ route('master.processes.form.edit', $process) }}">@include('shared.nav-icon', ['icon' => 'form'])Formulário</a>@include('shared.master-navigation')</div>
         </header>
         <main class="fc-list-content">
             <section class="fc-list-heading"><div><span class="fc-eyebrow">{{ $readOnly ? 'CONSULTA DA VERSÃO PUBLICADA' : 'ROTEAMENTO DAS TAREFAS' }}</span><h2>Responsável por etapa</h2><p>{{ $readOnly ? 'Consulte os responsáveis, formulários e prazos definidos nesta publicação. Para alterar a configuração, crie uma nova versão.' : 'Direcione cada tarefa humana para um grupo ou para uma pessoa específica. A configuração será gravada no BPMN ao publicar.' }}</p></div></section>
@@ -59,10 +60,10 @@
                             <div class="fc-task-form-heading"><div><strong>Campos desta etapa</strong><small>Esses campos são exibidos somente ao responsável configurado.</small></div><button type="button" data-add-form-field class="fc-button fc-button-secondary">Adicionar campo</button></div>
                             <div id="task-form-fields-{{ $taskIndex }}" data-form-fields>
                                 @foreach ($taskForm['fields'] ?? [] as $fieldIndex => $field)
-                                    @include('processes.partials.form-field', ['field' => $field, 'index' => $fieldIndex, 'namePrefix' => "task_forms[{$taskIndex}][fields]", 'errorPrefix' => "task_forms.{$taskIndex}.fields"])
+                                    @include('processes.partials.form-field', ['field' => $field, 'index' => $fieldIndex, 'namePrefix' => "task_forms[{$taskIndex}][fields]", 'errorPrefix' => "task_forms.{$taskIndex}.fields", 'allowEditability' => true])
                                 @endforeach
                             </div>
-                            <template data-form-field-template>@include('processes.partials.form-field', ['field' => [], 'index' => '__INDEX__', 'namePrefix' => "task_forms[{$taskIndex}][fields]", 'errorPrefix' => "task_forms.{$taskIndex}.fields"])</template>
+                            <template data-form-field-template>@include('processes.partials.form-field', ['field' => [], 'index' => '__INDEX__', 'namePrefix' => "task_forms[{$taskIndex}][fields]", 'errorPrefix' => "task_forms.{$taskIndex}.fields", 'allowEditability' => true])</template>
                         </div>
                         </div>
                     </details>

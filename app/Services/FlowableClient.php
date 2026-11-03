@@ -83,6 +83,11 @@ class FlowableClient
         }
     }
 
+    public function updateTaskAssignee(string $taskId, string $assignee): void
+    {
+        $this->client()->put("runtime/tasks/{$taskId}", ['assignee' => $assignee])->throw();
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function tasksForProcessInstance(string $processInstanceId): array
     {

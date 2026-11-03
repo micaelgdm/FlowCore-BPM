@@ -71,7 +71,8 @@ A prova implantou o BPMN de exemplo, iniciou o processo, concluiu uma tarefa hum
 ## Usuários e solicitações
 
 - O cadastro público continua desativado; contas e perfis são administrados pelo Master.
-- O formulário inicial suporta texto curto/longo, número, data, lista de opções e sim/não, com campos obrigatórios.
+- Os formulários inicial e por etapa suportam texto curto/longo, número, data, lista de opções simples ou múltiplas, seleção de usuário/grupo, sim/não, anexos privados e números calculados por soma, subtração, multiplicação ou divisão.
+- Campos condicionais podem controlar a exibição desses dados; formulários de etapa também podem marcar campos como somente leitura e reutilizar valores anteriores. Os cálculos são conferidos novamente no servidor e não executam expressões fornecidas pelo usuário.
 - Formulários são definidos em rascunhos e publicados junto com o BPMN; uma versão publicada é imutável.
 - As respostas são validadas no servidor, guardadas como JSON e enviadas ao Flowable como variáveis do processo.
 - Tarefas de preenchimento e aprovação/rejeição registram ator, data, comentário e campos no histórico local.

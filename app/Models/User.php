@@ -40,6 +40,16 @@ class User extends Authenticatable
         return $this->hasMany(ProcessInstance::class, 'started_by');
     }
 
+    public function taskDelegations(): HasMany
+    {
+        return $this->hasMany(UserTaskDelegation::class);
+    }
+
+    public function delegatedTaskTransfers(): HasMany
+    {
+        return $this->hasMany(TaskDelegationTransfer::class, 'delegate_user_id');
+    }
+
     public function getRoleLabelAttribute(): string
     {
         return UserRole::tryFrom($this->role)?->label() ?? $this->role;

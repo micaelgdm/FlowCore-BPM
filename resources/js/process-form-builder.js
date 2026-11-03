@@ -15,7 +15,15 @@ document.querySelectorAll('[data-form-fields]').forEach((fieldList) => {
     const updateOptionsVisibility = (field) => {
         const selector = field.querySelector('[data-field-type]');
         const options = field.querySelector('[data-field-options]');
-        if (selector && options) options.hidden = selector.value !== 'select';
+        const sourceNote = field.querySelector('[data-field-source-note]');
+        const sourceCopy = field.querySelector('[data-field-source-copy]');
+        const calculation = field.querySelector('[data-field-calculation]');
+        if (selector && options) options.hidden = !['select', 'multiselect'].includes(selector.value);
+        if (selector && sourceNote) sourceNote.hidden = !['user', 'group'].includes(selector.value);
+        if (selector && sourceCopy) sourceCopy.textContent = selector.value === 'user'
+            ? 'As opções vêm dos usuários ativos.'
+            : 'As opções vêm dos grupos cadastrados.';
+        if (selector && calculation) calculation.hidden = selector.value !== 'calculated';
     };
 
     const updateConditionVisibility = (field) => {
@@ -55,11 +63,12 @@ document.querySelectorAll('[data-form-fields]').forEach((fieldList) => {
     const refreshConditionFields = () => {
         const cards = [...fieldList.querySelectorAll('[data-form-field]')];
         cards.forEach((card, cardIndex) => {
-            const eligible = cards.slice(0, cardIndex).map((candidate) => ({
+            const previousCards = cards.slice(0, cardIndex).map((candidate) => ({
                 key: candidate.querySelector('[data-field-key]')?.value.trim() || '',
                 label: candidate.querySelector('[data-field-label]')?.value.trim() || '',
                 type: candidate.querySelector('[data-field-type]')?.value || '',
-            })).filter((candidate) => candidate.key && candidate.type !== 'file');
+            })).filter((candidate) => candidate.key && candidate.type !== 'file' && candidate.type !== 'calculated');
+            const eligible = previousCards;
 
             card.querySelectorAll('[data-condition-field-select]').forEach((select) => {
                 const wanted = select.value || select.dataset.selectedField || '';
@@ -70,6 +79,16 @@ document.querySelectorAll('[data-form-fields]').forEach((fieldList) => {
                 select.value = eligible.some((candidate) => candidate.key === wanted) ? wanted : '';
                 select.dataset.selectedField = select.value;
                 syncPicker(select.closest('[data-condition-field-picker]'));
+            });
+
+            const numericFields = previousCards.filter((candidate) => candidate.type === 'number');
+            card.querySelectorAll('[data-calculation-source]').forEach((select) => {
+                const wanted = select.value;
+                select.replaceChildren(new Option('Selecione um campo numérico anterior', ''));
+                numericFields.forEach((candidate) => {
+                    select.add(new Option(`${candidate.label || candidate.key} · ${candidate.key}`, candidate.key));
+                });
+                select.value = numericFields.some((candidate) => candidate.key === wanted) ? wanted : '';
             });
         });
     };

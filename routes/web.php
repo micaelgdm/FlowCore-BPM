@@ -13,6 +13,7 @@ use App\Http\Controllers\ProcessGroupController;
 use App\Http\Controllers\ProcessTaskController;
 use App\Http\Controllers\ProcessTaskAssignmentController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\UserTaskDelegationController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -30,6 +31,10 @@ Route::get('/', function (Request $request) {
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'create'])->name('login');
     Route::post('/login', [AuthController::class, 'store'])->name('login.store');
+    Route::get('/forgot-password', [AuthController::class, 'requestPasswordReset'])->name('password.request');
+    Route::post('/forgot-password', [AuthController::class, 'sendPasswordResetLink'])->name('password.email');
+    Route::get('/reset-password/{token}', [AuthController::class, 'resetPasswordForm'])->name('password.reset');
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.update');
 });
 
 Route::post('/logout', [AuthController::class, 'destroy'])->middleware('auth')->name('logout');
@@ -37,6 +42,8 @@ Route::post('/logout', [AuthController::class, 'destroy'])->middleware('auth')->
 Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password.update');
+    Route::post('/profile/task-delegations', [UserTaskDelegationController::class, 'store'])->name('profile.task-delegations.store');
+    Route::delete('/profile/task-delegations/{delegation}', [UserTaskDelegationController::class, 'cancel'])->whereNumber('delegation')->name('profile.task-delegations.cancel');
 });
 
 Route::middleware(['auth', 'active'])->prefix('portal')->name('portal.')->group(function () {

@@ -6,7 +6,9 @@ use App\Http\Controllers\ProcessTaskAssignmentController;
 use App\Jobs\SendTaskAssignmentEmail;
 use App\Models\ProcessGroup;
 use App\Models\ProcessInstance;
+use App\Models\TaskDelegationTransfer;
 use App\Models\User;
+use App\Models\UserTaskDelegation;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -30,13 +32,15 @@ class TaskAssignmentNotificationService
                 continue;
             }
 
-            foreach ($this->recipientsForTask($instance, $taskKey, $task['assignee'] ?? null) as $recipient) {
+            $context = $this->delegationContextForTask($instance, $taskKey, $taskId);
+            foreach ($this->recipientsForTask($instance, $taskKey, $task['assignee'] ?? null, $taskId) as $recipient) {
                 $notificationsQueued += (int) $this->queueNotification(
                     $instance,
                     $task,
                     $taskDefinitions[$taskKey]['name'] ?? 'Tarefa',
                     $recipient,
                     'assigned',
+                    context: $context,
                 );
             }
         }
@@ -74,7 +78,8 @@ class TaskAssignmentNotificationService
                 continue;
             }
 
-            foreach ($this->recipientsForTask($instance, $taskKey, $task['assignee'] ?? null) as $recipient) {
+            $context = $this->delegationContextForTask($instance, $taskKey, $taskId);
+            foreach ($this->recipientsForTask($instance, $taskKey, $task['assignee'] ?? null, $taskId) as $recipient) {
                 $queued += (int) $this->queueNotification(
                     $instance,
                     $task,
@@ -82,6 +87,7 @@ class TaskAssignmentNotificationService
                     $recipient,
                     $notificationType,
                     $dueAt,
+                    $context,
                 );
             }
         }
@@ -159,29 +165,80 @@ class TaskAssignmentNotificationService
     }
 
     /** @return \Illuminate\Support\Collection<int, User> */
-    private function recipientsForTask(ProcessInstance $instance, string $taskKey, mixed $assignee)
+    private function recipientsForTask(ProcessInstance $instance, string $taskKey, mixed $assignee, string $taskId)
     {
-        if (is_string($assignee) && preg_match('/^flowcore_user_(\d+)$/', $assignee, $matches) === 1) {
-            return User::query()->whereKey((int) $matches[1])->where('is_active', true)->get();
+        $transfer = TaskDelegationTransfer::query()->where('flowable_task_id', $taskId)->first();
+        if ($transfer) {
+            return User::query()->whereKey($transfer->delegate_user_id)->where('is_active', true)->get();
         }
 
         $definition = $instance->processDefinition;
         $userId = $definition->task_user_assignments[$taskKey] ?? null;
         if (is_numeric($userId)) {
-            return User::query()->whereKey((int) $userId)->where('is_active', true)->get();
+            $delegate = $this->activeDelegateFor((int) $userId);
+            if ($delegate) {
+                return collect([$delegate]);
+            }
+
+            $user = User::query()->whereKey((int) $userId)->where('is_active', true)->first();
+
+            return $user ? collect([$user]) : collect();
         }
 
         $groupId = $definition->task_group_assignments[$taskKey] ?? null;
         if (is_numeric($groupId)) {
+            if (is_string($assignee) && preg_match('/^flowcore_user_(\d+)$/', $assignee, $matches) === 1) {
+                return User::query()->whereKey((int) $matches[1])->where('is_active', true)->get();
+            }
+
             return ProcessGroup::query()
                 ->whereKey((int) $groupId)
                 ->with(['users' => fn ($query) => $query->where('is_active', true)])
                 ->first()?->users ?? collect();
         }
 
+        if (is_string($assignee) && preg_match('/^flowcore_user_(\d+)$/', $assignee, $matches) === 1) {
+            $delegate = $this->activeDelegateFor((int) $matches[1]);
+            if ($delegate) {
+                return collect([$delegate]);
+            }
+
+            return User::query()->whereKey((int) $matches[1])->where('is_active', true)->get();
+        }
+
         return $definition->authorizedUsers()
             ->wherePivot('can_approve', true)
             ->where('is_active', true)
             ->get();
+    }
+
+    private function activeDelegateFor(int $userId): ?User
+    {
+        $delegate = UserTaskDelegation::query()
+            ->with('delegate')
+            ->where('user_id', $userId)
+            ->whereNull('cancelled_at')
+            ->where('starts_at', '<=', now())
+            ->where('ends_at', '>=', now())
+            ->first()?->delegate;
+
+        return $delegate?->is_active ? $delegate : null;
+    }
+
+    private function delegationContextForTask(ProcessInstance $instance, string $taskKey, string $taskId): ?string
+    {
+        $transfer = TaskDelegationTransfer::query()->with('originalUser')->where('flowable_task_id', $taskId)->first();
+        if ($transfer) {
+            return 'Você está atuando como substituto de '.$transfer->originalUser->name.'.';
+        }
+
+        $originalUserId = $instance->processDefinition->task_user_assignments[$taskKey] ?? null;
+        if (! is_numeric($originalUserId) || ! $this->activeDelegateFor((int) $originalUserId)) {
+            return null;
+        }
+
+        $originalUserName = User::query()->whereKey((int) $originalUserId)->value('name');
+
+        return is_string($originalUserName) ? 'Você está atuando como substituto de '.$originalUserName.'.' : null;
     }
 }

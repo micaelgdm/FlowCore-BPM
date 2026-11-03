@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    @include('shared.favicon')
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Processos · FlowCore BPM</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -11,20 +12,11 @@
     <div class="fc-list-page">
         <header class="fc-header">
             <a class="fc-brand" href="{{ route('master.processes.index') }}">
-                <span class="fc-brand-mark">F</span>
-                <span><strong>FlowCore</strong><small>BPM</small></span>
+                @include('shared.brand-logo')
             </a>
             <div class="fc-process-name"><span class="fc-eyebrow">ÁREA MASTER</span><h1>Processos</h1></div>
             <div class="fc-header-actions">
-                <a class="fc-button fc-button-secondary" href="{{ route('master.users.index') }}">Usuários</a>
-                <a class="fc-button fc-button-secondary" href="{{ route('master.groups.index') }}">Grupos</a>
-                <a class="fc-button fc-button-secondary" href="{{ route('master.notifications.index') }}">Notificações</a>
-                <a class="fc-button fc-button-secondary" href="{{ route('master.audit.index') }}">Auditoria</a>
-                @include('shared.profile-link')
-                <form method="POST" action="{{ route('logout') }}">
-                    @csrf
-                    <button class="fc-button fc-button-secondary" type="submit">Sair</button>
-                </form>
+                @include('shared.master-navigation')
             </div>
         </header>
         <main class="fc-list-content">
@@ -34,13 +26,13 @@
             @if (session('status')) <div class="fc-flash-success" role="status">{{ session('status') }}</div> @endif
             @error('process') <div class="fc-login-error" role="alert">{{ $message }}</div> @enderror
             <section class="fc-metrics-section" aria-labelledby="fc-metrics-title">
-                <div class="fc-metrics-heading"><div><span class="fc-eyebrow">ACOMPANHAMENTO</span><h3 id="fc-metrics-title">Indicadores das solicitações</h3></div><small>Visão geral de todas as versões</small></div>
+                <div class="fc-metrics-heading"><div><span class="fc-eyebrow">ACOMPANHAMENTO</span><h3 id="fc-metrics-title">Resumo operacional</h3></div><small>Solicitações e tarefas de todas as versões</small></div>
                 <div class="fc-metrics-grid">
                     <article class="fc-metric-card"><span>Total de solicitações</span><strong>{{ number_format((int) ($requestMetrics->total_count ?? 0), 0, ',', '.') }}</strong><small>Registros iniciados no portal</small></article>
                     <article class="fc-metric-card is-running"><span>Em andamento</span><strong>{{ number_format((int) ($requestMetrics->running_count ?? 0), 0, ',', '.') }}</strong><small>Solicitações ainda abertas</small></article>
                     <article class="fc-metric-card is-completed"><span>Concluídas</span><strong>{{ number_format((int) ($requestMetrics->completed_count ?? 0), 0, ',', '.') }}</strong><small>Encerradas no motor</small></article>
-                    <article class="fc-metric-card is-attention"><span>Falha ao iniciar</span><strong>{{ number_format((int) ($requestMetrics->failed_count ?? 0), 0, ',', '.') }}</strong><small>Exigem revisão ou novo envio</small></article>
-                    <article class="fc-metric-card is-starting"><span>Inicialização pendente</span><strong>{{ number_format((int) ($requestMetrics->pending_start_count ?? 0), 0, ',', '.') }}</strong><small>Aguardando confirmação do motor</small></article>
+                    <article class="fc-metric-card is-pending"><span>Tarefas pendentes</span><strong>{{ $runtimeMetricsAvailable ? number_format((int) $pendingTaskCount, 0, ',', '.') : '—' }}</strong><small>{{ $runtimeMetricsAvailable ? 'Aguardando ação dos responsáveis' : 'Motor indisponível para consulta' }}</small></article>
+                    <article class="fc-metric-card is-overdue"><span>Tarefas atrasadas</span><strong>{{ $runtimeMetricsAvailable ? number_format((int) $overdueTaskCount, 0, ',', '.') : '—' }}</strong><small>{{ $runtimeMetricsAvailable ? 'Com prazo configurado já vencido' : 'Motor indisponível para consulta' }}</small></article>
                 </div>
                 <div class="fc-metrics-table-wrap">
                     <div class="fc-metrics-heading"><div><h4>Solicitações por processo</h4></div></div>
@@ -48,10 +40,10 @@
                         <p class="fc-metrics-empty">Os indicadores por processo aparecerão quando houver definições cadastradas.</p>
                     @else
                         <table class="fc-metrics-table">
-                            <thead><tr><th>Processo</th><th>Total</th><th>Em andamento</th><th>Concluídas</th><th>Falha ao iniciar</th></tr></thead>
+                            <thead><tr><th>Processo</th><th>Total</th><th>Em andamento</th><th>Concluídas</th></tr></thead>
                             <tbody>
                                 @foreach ($processMetrics as $metric)
-                                    <tr><th scope="row"><span>{{ $metric->process_name }}</span><small>{{ $metric->active_version ? 'Em uso · V'.$metric->active_version : 'Sem versão publicada ativa' }}</small></th><td>{{ number_format((int) $metric->total_count, 0, ',', '.') }}</td><td>{{ number_format((int) $metric->running_count, 0, ',', '.') }}</td><td>{{ number_format((int) $metric->completed_count, 0, ',', '.') }}</td><td>{{ number_format((int) $metric->failed_count, 0, ',', '.') }}</td></tr>
+                                    <tr><th scope="row"><span>{{ $metric->process_name }}</span><small>{{ $metric->active_version ? 'Em uso · V'.$metric->active_version : 'Sem versão publicada ativa' }}</small></th><td>{{ number_format((int) $metric->total_count, 0, ',', '.') }}</td><td>{{ number_format((int) $metric->running_count, 0, ',', '.') }}</td><td>{{ number_format((int) $metric->completed_count, 0, ',', '.') }}</td></tr>
                                 @endforeach
                             </tbody>
                         </table>

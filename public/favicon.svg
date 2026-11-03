@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Grupo Doce Mel">
+  <rect width="48" height="48" rx="12" fill="#0F472B"/>
+  <path fill-rule="evenodd" d="M11 10h12c9 0 15 5.6 15 14S32 38 23 38H11V10Zm8 7v14h4c4.6 0 7-2.5 7-7s-2.4-7-7-7h-4Z" fill="#fff"/>
+  <circle cx="36" cy="12" r="4" fill="#D5B36B"/>
+</svg>

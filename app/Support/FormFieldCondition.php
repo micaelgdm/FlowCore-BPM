@@ -50,6 +50,18 @@ class FormFieldCondition
                 continue;
             }
 
+            if (is_array($current)) {
+                $current = array_map(static fn ($value): string => is_scalar($value) ? (string) $value : '', $current);
+                $hasValue = in_array($expected, $current, true);
+                $matches[] = match ($rule['operator'] ?? 'eq') {
+                    'neq' => ! $hasValue,
+                    'contains' => collect($current)->contains(fn (string $value): bool => str_contains(mb_strtolower($value), mb_strtolower($expected))),
+                    'not_contains' => ! collect($current)->contains(fn (string $value): bool => str_contains(mb_strtolower($value), mb_strtolower($expected))),
+                    default => $hasValue,
+                };
+                continue;
+            }
+
             $current = is_scalar($current) ? (string) $current : '';
             $matches[] = match ($rule['operator'] ?? 'eq') {
                 'neq' => $current !== $expected,

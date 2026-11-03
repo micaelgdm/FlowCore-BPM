@@ -3,19 +3,17 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    @include('shared.favicon')
     <title>Usuários · FlowCore BPM</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="flowcore-page">
     <div class="fc-list-page">
         <header class="fc-header">
-            <a class="fc-brand" href="{{ route('master.processes.index') }}"><span class="fc-brand-mark">F</span><span><strong>FlowCore</strong><small>BPM</small></span></a>
+            <a class="fc-brand" href="{{ route('master.processes.index') }}">@include('shared.brand-logo')</a>
             <div class="fc-process-name"><span class="fc-eyebrow">ÁREA MASTER</span><h1>Usuários</h1></div>
             <div class="fc-header-actions">
-                <a class="fc-button fc-button-secondary" href="{{ route('master.processes.index') }}">Processos</a>
-                <a class="fc-button fc-button-secondary" href="{{ route('master.groups.index') }}">Grupos</a>
-                @include('shared.profile-link')
-                <form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">Sair</button></form>
+                @include('shared.master-navigation')
             </div>
         </header>
         <main class="fc-list-content">

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -11,7 +12,17 @@ class ProfileController extends Controller
 {
     public function edit(Request $request): View
     {
-        return view('profile.edit', ['user' => $request->user()]);
+        $user = $request->user();
+
+        return view('profile.edit', [
+            'user' => $user,
+            'taskDelegations' => $user->taskDelegations()->with('delegate')->latest('starts_at')->get(),
+            'delegateOptions' => User::query()
+                ->where('is_active', true)
+                ->where('id', '<>', $user->id)
+                ->orderBy('name')
+                ->get(['id', 'name', 'email']),
+        ]);
     }
 
     public function updatePassword(Request $request): RedirectResponse

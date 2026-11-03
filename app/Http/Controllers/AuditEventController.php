@@ -10,7 +10,7 @@ class AuditEventController extends Controller
     public function index(): View
     {
         return view('audit.index', [
-            'events' => AuditEvent::query()->latest('id')->paginate(50),
+            'events' => AuditEvent::query()->latest('id')->paginate(15),
         ]);
     }
 }

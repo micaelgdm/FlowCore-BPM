@@ -8,18 +8,22 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use App\Models\ProcessDefinition;
 use App\Models\ProcessGroup;
 use App\Models\ProcessInstance;
+use App\Models\TaskDelegationTransfer;
 use App\Models\User;
 use App\Services\FlowableClient;
 use App\Services\TaskAssignmentNotificationService;
 use App\Services\FormAttachmentService;
 use App\Support\FormFieldCondition;
+use App\Support\FormFieldCalculation;
 use Illuminate\Http\UploadedFile;
 use RuntimeException;
 
@@ -80,6 +84,8 @@ class PortalProcessController extends Controller
         return view('portal.start-process', [
             'process' => $process,
             'idempotencyKey' => (string) Str::uuid(),
+            'formUsers' => User::query()->where('is_active', true)->where('role', '!=', 'master')->orderBy('name')->get(['id', 'name', 'email']),
+            'formGroups' => ProcessGroup::query()->orderBy('name')->get(['id', 'name']),
         ]);
     }
 
@@ -94,7 +100,7 @@ class PortalProcessController extends Controller
         abort_unless($legacyApprover || $hasTaskGroups, 409, 'O processo ainda não tem um grupo responsável configurado.');
 
         $rules = ['idempotency_key' => ['required', 'uuid']];
-        $submitted = $request->all();
+        $submitted = array_replace($request->all(), FormFieldCalculation::calculate($process->form_schema, $request->all()));
 
         foreach ($process->form_schema as $field) {
             if (! FormFieldCondition::isVisible($field, $submitted)) {
@@ -109,14 +115,21 @@ class PortalProcessController extends Controller
                 'number' => ['numeric', 'between:-999999999999,999999999999'],
                 'date' => ['date_format:Y-m-d'],
                 'select' => [Rule::in($field['options'] ?? [])],
+                'multiselect' => ['array', ...((($field['required'] ?? false) ? ['min:1'] : []))],
+                'user' => ['integer', Rule::exists('users', 'id')->where('is_active', true)->where('role', '!=', 'master')],
+                'group' => ['integer', Rule::exists('process_groups', 'id')],
+                'calculated' => ['numeric', 'between:-999999999999,999999999999'],
                 'boolean' => ['boolean'],
                 'file' => ['file', 'max:10240', 'mimes:pdf,doc,docx,xls,xlsx,csv,txt,jpg,jpeg,png,webp'],
                 default => ['prohibited'],
             };
             $rules[$field['key']] = [$presence, ...$typeRules];
+            if ($field['type'] === 'multiselect') {
+                $rules[$field['key'].'.*'] = ['string', Rule::in($field['options'] ?? [])];
+            }
         }
 
-        $data = $request->validate($rules);
+        $data = Validator::make($submitted, $rules)->validate();
         $idempotencyKey = (string) $data['idempotency_key'];
         $formData = [];
 
@@ -127,17 +140,38 @@ class PortalProcessController extends Controller
                 continue;
             }
 
+            if ($field['type'] === 'user') {
+                $selectedUser = User::query()->findOrFail($value);
+                $formData[$field['key']] = ['id' => $selectedUser->id, 'label' => $selectedUser->name.' · '.$selectedUser->email];
+                continue;
+            }
+            if ($field['type'] === 'group') {
+                $selectedGroup = ProcessGroup::query()->findOrFail($value);
+                $formData[$field['key']] = ['id' => $selectedGroup->id, 'label' => $selectedGroup->name];
+                continue;
+            }
+
             $formData[$field['key']] = $field['type'] === 'file' && $value instanceof UploadedFile
                 ? $attachments->store($value, "process-{$process->id}-{$idempotencyKey}", $field['key'])
                 : match ($field['type']) {
                 'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
                 'number' => str_contains((string) $value, '.') ? (float) $value : (int) $value,
+                'calculated' => (float) $value,
+                'multiselect' => array_values($value),
                 default => $value,
             };
         }
 
         $fileFieldKeys = collect($process->form_schema)->where('type', 'file')->pluck('key')->all();
-        $flowableFormData = collect($formData)->except($fileFieldKeys)->all();
+        $flowableFormData = collect($formData)->except($fileFieldKeys)->map(function ($value) {
+            if (is_array($value) && isset($value['id'], $value['label'])) {
+                return (int) $value['id'];
+            }
+            if (is_array($value) && array_is_list($value)) {
+                return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+            }
+            return $value;
+        })->all();
 
         try {
             $instance = DB::transaction(function () use ($request, $process, $flowable, $legacyApprover, $hasTaskGroups, $idempotencyKey, $formData, $flowableFormData): ProcessInstance {
@@ -199,6 +233,13 @@ class PortalProcessController extends Controller
         }
 
         try {
+            // Route newly created tasks to active substitutes before notifying anyone.
+            Artisan::call('flowcore:apply-task-delegations');
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+
+        try {
             $notifications->notifyNewTasks($instance, $flowable);
         } catch (\Throwable $exception) {
             report($exception);
@@ -210,7 +251,7 @@ class PortalProcessController extends Controller
     public function show(Request $request, string $uuid, FlowableClient $flowable): View
     {
         $instance = ProcessInstance::query()
-            ->with(['processDefinition', 'decisions.actor'])
+            ->with(['processDefinition', 'decisions.actor', 'decisions.delegatedFromUser'])
             ->where('uuid', $uuid)
             ->where('started_by', $request->user()->id)
             ->firstOrFail();
@@ -231,21 +272,47 @@ class PortalProcessController extends Controller
                 $groupIds = collect($assignments)->values()->map(fn ($id): int => (int) $id)->filter()->unique()->values();
                 $groups = ProcessGroup::query()->whereIn('id', $groupIds)->get()->keyBy('id');
                 $userAssignments = $instance->processDefinition->task_user_assignments ?? [];
-                $assignedUsers = User::query()->whereIn('id', array_values($userAssignments))->get()->keyBy('id');
+                $currentAssigneeIds = collect($engineTasks)
+                    ->map(function (array $task): ?int {
+                        return preg_match('/^flowcore_user_(\d+)$/', (string) ($task['assignee'] ?? ''), $matches)
+                            ? (int) $matches[1]
+                            : null;
+                    })
+                    ->filter()
+                    ->all();
+                $assignedUserIds = collect(array_values($userAssignments))->merge($currentAssigneeIds)->unique()->values();
+                $assignedUsers = User::query()->whereIn('id', $assignedUserIds)->get()->keyBy('id');
+                $taskIds = collect($engineTasks)->pluck('id')->filter(fn ($id) => is_string($id))->values();
+                $delegationTransfers = TaskDelegationTransfer::query()
+                    ->with('originalUser')
+                    ->whereIn('flowable_task_id', $taskIds)
+                    ->get()
+                    ->keyBy('flowable_task_id');
 
                 $currentActivities = collect($engineTasks)
                     ->filter(fn (array $task): bool => is_string($task['id'] ?? null))
-                    ->map(function (array $task) use ($assignments, $groups, $userAssignments, $assignedUsers): array {
+                    ->map(function (array $task) use ($assignments, $groups, $userAssignments, $assignedUsers, $delegationTransfers): array {
                         $taskKey = $task['taskDefinitionKey'] ?? null;
                         $groupId = is_string($taskKey) ? ($assignments[$taskKey] ?? null) : null;
                         $group = is_numeric($groupId) ? $groups->get((int) $groupId) : null;
                         $userId = is_string($taskKey) ? ($userAssignments[$taskKey] ?? null) : null;
                         $assignedUser = is_numeric($userId) ? $assignedUsers->get((int) $userId) : null;
+                        $assigneeId = preg_match('/^flowcore_user_(\d+)$/', (string) ($task['assignee'] ?? ''), $matches)
+                            ? (int) $matches[1]
+                            : null;
+                        $claimingUser = $group && $assigneeId ? $assignedUsers->get($assigneeId) : null;
+                        $delegationTransfer = $delegationTransfers->get($task['id']);
+                        $currentAssignee = $assigneeId ? $assignedUsers->get($assigneeId) : null;
+                        $stageTiming = self::stageTiming($task['createTime'] ?? null);
 
                         return [
                             'name' => $task['name'] ?? 'Atividade em andamento',
                             'group' => $group?->name ?? ($assignedUser ? $assignedUser->name : null),
                             'state' => filled($task['assignee'] ?? null) ? 'Em atendimento' : ($assignedUser ? 'Aguardando usuário' : 'Aguardando o grupo'),
+                            'claimed_by' => ($claimingUser ?? ($delegationTransfer ? $currentAssignee : null))?->name,
+                            'delegated_from' => $delegationTransfer?->originalUser?->name,
+                            'elapsed' => $stageTiming['elapsed'] ?? null,
+                            'started_at' => $stageTiming['started_at'] ?? null,
                         ];
                     })
                     ->values()
@@ -278,6 +345,41 @@ class PortalProcessController extends Controller
             'activityLookupAvailable' => $activityLookupAvailable,
             'decisionHistory' => $decisionHistory,
         ]);
+    }
+
+    /** @return array{elapsed: string, started_at: string}|null */
+    private static function stageTiming(mixed $createTime): ?array
+    {
+        if (! is_string($createTime) || trim($createTime) === '') {
+            return null;
+        }
+
+        try {
+            $startedAt = Carbon::parse($createTime);
+            $elapsedSeconds = max(0, now()->getTimestamp() - $startedAt->getTimestamp());
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $days = intdiv($elapsedSeconds, 86400);
+        $hours = intdiv($elapsedSeconds % 86400, 3600);
+        $minutes = intdiv($elapsedSeconds % 3600, 60);
+        $parts = [];
+
+        if ($days > 0) {
+            $parts[] = $days.' '.($days === 1 ? 'dia' : 'dias');
+        }
+        if ($hours > 0) {
+            $parts[] = $hours.' h';
+        }
+        if ($minutes > 0 && $days === 0) {
+            $parts[] = $minutes.' min';
+        }
+
+        return [
+            'elapsed' => $parts === [] ? 'menos de 1 min' : implode(' e ', $parts),
+            'started_at' => $startedAt->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i'),
+        ];
     }
 
     private function synchronizeInstanceStatus(ProcessInstance $instance, FlowableClient $flowable): void

@@ -81,9 +81,14 @@ class ProcessTaskAssignmentController extends Controller
             'task_forms.*.fields' => ['nullable', 'array', 'max:30'],
             'task_forms.*.fields.*.key' => ['required', 'string', 'regex:/^[a-z][a-z0-9_]{0,49}$/', 'not_in:idempotency_key,_token,_method'],
             'task_forms.*.fields.*.label' => ['required', 'string', 'max:100'],
-            'task_forms.*.fields.*.type' => ['required', 'in:text,textarea,number,date,select,boolean,file'],
+            'task_forms.*.fields.*.type' => ['required', 'in:text,textarea,number,date,select,multiselect,user,group,calculated,boolean,file'],
             'task_forms.*.fields.*.required' => ['nullable', 'boolean'],
+            'task_forms.*.fields.*.editable' => ['nullable', 'boolean'],
             'task_forms.*.fields.*.options' => ['nullable', 'string', 'max:2000'],
+            'task_forms.*.fields.*.calculation' => ['nullable', 'array'],
+            'task_forms.*.fields.*.calculation.left' => ['nullable', 'string', 'max:50'],
+            'task_forms.*.fields.*.calculation.right' => ['nullable', 'string', 'max:50'],
+            'task_forms.*.fields.*.calculation.operation' => ['nullable', 'in:add,subtract,multiply,divide'],
             'task_forms.*.fields.*.visible_when_mode' => ['nullable', 'in:always,hidden_unless,shown_unless'],
             'task_forms.*.fields.*.visible_when_match' => ['nullable', 'in:all,any'],
             'task_forms.*.fields.*.conditions' => ['nullable', 'array', 'max:10'],
@@ -145,14 +150,38 @@ class ProcessTaskAssignmentController extends Controller
                 }
 
                 foreach ($fields as $fieldIndex => $field) {
-                    if (! is_array($field) || ($field['type'] ?? null) !== 'select') {
+                    if (! is_array($field)) {
                         continue;
                     }
 
-                    $options = preg_split('/\R/u', trim((string) ($field['options'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-                    $options = array_values(array_unique(array_map('trim', $options)));
-                    if (count($options) < 2 || collect($options)->contains(fn ($option): bool => mb_strlen($option) > 100)) {
-                        $validator->errors()->add("task_forms.{$taskId}.fields.{$fieldIndex}.options", 'Informe pelo menos duas opções, uma por linha, com até 100 caracteres cada.');
+                    if (in_array($field['type'] ?? null, ['select', 'multiselect'], true)) {
+                        $options = preg_split('/\R/u', trim((string) ($field['options'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+                        $options = array_values(array_unique(array_map('trim', $options)));
+                        if (count($options) < 2 || collect($options)->contains(fn ($option): bool => mb_strlen($option) > 100)) {
+                            $validator->errors()->add("task_forms.{$taskId}.fields.{$fieldIndex}.options", 'Informe pelo menos duas opções, uma por linha, com até 100 caracteres cada.');
+                        }
+                    }
+
+                    if (($field['type'] ?? null) === 'calculated') {
+                        $formula = $field['calculation'] ?? [];
+                        foreach (['left', 'right'] as $operand) {
+                            $key = $formula[$operand] ?? null;
+                            $sourceIndex = null;
+                            $sourceType = null;
+                            foreach ($fields as $candidateIndex => $candidate) {
+                                if (is_array($candidate) && ($candidate['key'] ?? null) === $key) {
+                                    $sourceIndex = $candidateIndex;
+                                    $sourceType = $candidate['type'] ?? null;
+                                    break;
+                                }
+                            }
+                            if (! is_string($key) || $key === '' || $sourceIndex === null || $sourceIndex >= $fieldIndex || $sourceType !== 'number') {
+                                $validator->errors()->add("task_forms.{$taskId}.fields.{$fieldIndex}.calculation.{$operand}", 'Selecione um campo numérico anterior.');
+                            }
+                        }
+                        if (! in_array($formula['operation'] ?? null, ['add', 'subtract', 'multiply', 'divide'], true)) {
+                            $validator->errors()->add("task_forms.{$taskId}.fields.{$fieldIndex}.calculation.operation", 'Escolha uma operação válida.');
+                        }
                     }
                 }
             }
@@ -235,11 +264,20 @@ class ProcessTaskAssignmentController extends Controller
                     'label' => trim($field['label']),
                     'type' => $field['type'],
                     'required' => (bool) ($field['required'] ?? false),
+                    'editable' => filter_var($field['editable'] ?? true, FILTER_VALIDATE_BOOLEAN),
                 ];
 
-                if ($field['type'] === 'select') {
+                if (in_array($field['type'], ['select', 'multiselect'], true)) {
                     $options = preg_split('/\R/u', trim((string) ($field['options'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
                     $normalized['options'] = array_values(array_unique(array_map('trim', $options)));
+                }
+
+                if ($field['type'] === 'calculated') {
+                    $normalized['calculation'] = [
+                        'left' => $field['calculation']['left'],
+                        'operation' => $field['calculation']['operation'],
+                        'right' => $field['calculation']['right'],
+                    ];
                 }
 
                 if ($condition = FormVisibilityRule::normalize($field)) {

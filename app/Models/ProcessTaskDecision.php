@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['process_instance_id', 'flowable_task_id', 'task_name', 'task_definition_key', 'decided_by', 'decision', 'justification', 'form_data', 'flowable_completed_at', 'flowable_started_at'])]
+#[Fillable(['process_instance_id', 'flowable_task_id', 'task_name', 'task_definition_key', 'decided_by', 'delegated_from_user_id', 'decision', 'justification', 'form_data', 'flowable_completed_at', 'flowable_started_at'])]
 class ProcessTaskDecision extends Model
 {
     protected function casts(): array
@@ -22,5 +22,10 @@ class ProcessTaskDecision extends Model
     public function actor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'decided_by');
+    }
+
+    public function delegatedFromUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'delegated_from_user_id');
     }
 }

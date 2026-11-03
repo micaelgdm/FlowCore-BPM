@@ -71,7 +71,7 @@
 7. Auditoria, prazos, indicadores e recursos corporativos — prazos por tarefa, trilha de auditoria, acompanhamento da etapa atual e métricas de duração média por etapa, atrasos e pendências por grupo implementados.
 8. Implantação interna.
 
-Recursos recentes: gateways inclusivos podem devolver para múltiplas áreas em paralelo; formulários aceitam anexos privados e campos condicionais; o painel Master apresenta tempos por etapa, atrasos e pendências por grupo; páginas de Formulário/Equipes de versões publicadas são somente para leitura. O ciclo de devolução multiárea ainda precisa de validação ponta a ponta no Flowable.
+Recursos recentes: gateways inclusivos podem devolver para múltiplas áreas em paralelo; formulários aceitam anexos privados, campos condicionais, seleção múltipla, seleção de usuário/grupo e campos numéricos calculados por operações controladas. Campos de formulários por etapa podem ser configurados como somente leitura e reutilizam os valores registrados anteriormente. O painel Master apresenta tempos por etapa, atrasos e pendências por grupo; páginas de Formulário/Equipes de versões publicadas são somente para leitura. O ciclo de devolução multiárea ainda precisa de validação ponta a ponta no Flowable.
 
 ## Ambiente e comandos
 
