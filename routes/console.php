@@ -16,6 +16,10 @@ Schedule::command('flowcore:apply-task-delegations')
     ->everyMinute()
     ->withoutOverlapping(5);
 
+Schedule::command('flowcore:apply-task-escalations')
+    ->everyMinute()
+    ->withoutOverlapping(5);
+
 Schedule::command('flowcore:notify-task-deadlines --limit=25')
     ->everyFiveMinutes()
     ->withoutOverlapping(10);

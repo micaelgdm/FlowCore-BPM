@@ -6,6 +6,7 @@ use App\Models\ProcessInstance;
 use App\Models\ProcessGroup;
 use App\Models\ProcessTaskDecision;
 use App\Models\TaskDelegationTransfer;
+use App\Models\TaskEscalationTransfer;
 use App\Models\User;
 use App\Services\FormAttachmentService;
 use App\Services\FlowableClient;
@@ -110,6 +111,11 @@ class ProcessTaskController extends Controller
                 ->whereIn('flowable_task_id', collect($engineTasks)->pluck('id')->filter()->values())
                 ->get()
                 ->keyBy('flowable_task_id');
+            $escalationTransfers = TaskEscalationTransfer::query()
+                ->with('escalatedTo')
+                ->whereIn('flowable_task_id', collect($engineTasks)->pluck('id')->filter()->values())
+                ->get()
+                ->keyBy('flowable_task_id');
 
             $tasks = collect($engineTasks)->filter(function (array $task) use ($instances, $request): bool {
                 $instance = $instances->get($task['processInstanceId'] ?? '');
@@ -119,7 +125,7 @@ class ProcessTaskController extends Controller
                     && is_string($task['processInstanceId'] ?? null)
                     && $instance instanceof ProcessInstance
                     && self::userCanAccessTask($instance, $task, $request->user());
-            })->map(function (array $task) use ($instances, $decisionsByInstance, $delegationTransfers): array {
+            })->map(function (array $task) use ($instances, $decisionsByInstance, $delegationTransfers, $escalationTransfers): array {
                 $instance = $instances->get($task['processInstanceId']);
                 $schema = self::schemaForTask($instance, $task);
                 $showProcessData = $schema['show_process_data'] ?? (($schema['kind'] ?? null) === 'approval');
@@ -176,6 +182,7 @@ class ProcessTaskController extends Controller
                     'due_at' => $dueAt,
                     'is_overdue' => $dueAt?->isPast() ?? false,
                     'delegated_from' => $delegationTransfers->get($task['id'])?->originalUser?->name,
+                    'is_escalated' => $escalationTransfers->has($task['id']),
                     'previous_data' => $previousData,
                     'read_only_data' => $instance
                         ? self::readOnlyFieldData($instance, $schema['fields'] ?? [], $decisions)
@@ -355,6 +362,7 @@ class ProcessTaskController extends Controller
             if ($delegatedFromUserId !== null) {
                 TaskDelegationTransfer::query()->where('flowable_task_id', $taskId)->update(['completed_at' => now()]);
             }
+            TaskEscalationTransfer::query()->where('flowable_task_id', $taskId)->update(['completed_at' => now()]);
         }
 
         try {
@@ -816,6 +824,13 @@ class ProcessTaskController extends Controller
     /** @param array<string, mixed> $task */
     public static function userCanAccessTask(ProcessInstance $instance, array $task, User $user): bool
     {
+        $escalation = is_string($task['id'] ?? null)
+            ? TaskEscalationTransfer::query()->where('flowable_task_id', $task['id'])->first()
+            : null;
+        if ($escalation) {
+            return $escalation->escalated_to_user_id === $user->id;
+        }
+
         $transfer = is_string($task['id'] ?? null)
             ? TaskDelegationTransfer::query()->where('flowable_task_id', $task['id'])->first()
             : null;

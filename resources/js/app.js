@@ -291,3 +291,130 @@ document.querySelectorAll('[data-access-picker]').forEach((picker) => {
     picker.addEventListener('change', updateCount);
     updateCount();
 });
+
+const gatewayOperatorLabels = {
+    eq: 'é igual a',
+    neq: 'é diferente de',
+    gt: 'é maior que',
+    gte: 'é maior ou igual a',
+    lt: 'é menor que',
+    lte: 'é menor ou igual a',
+    contains: 'contém',
+    not_contains: 'não contém',
+};
+
+document.querySelectorAll('[data-gateway-mode-card]').forEach((card) => {
+    const modeSelect = card.querySelector('[data-gateway-mode]');
+    const approvalRules = card.querySelector('[data-gateway-approval]');
+    const conditionRules = card.querySelector('[data-gateway-conditions]');
+
+    const setSectionEnabled = (section, enabled) => {
+        if (!(section instanceof HTMLElement)) return;
+        section.hidden = !enabled;
+        section.querySelectorAll('input, select, textarea, button').forEach((control) => {
+            control.disabled = !enabled;
+        });
+    };
+
+    const updateRuleRow = (row) => {
+        const fieldSelect = row.querySelector('[data-condition-field]');
+        const selectedField = fieldSelect?.selectedOptions[0];
+        const fieldType = selectedField?.dataset.fieldType || '';
+        const operatorSelect = row.querySelector('[data-condition-operator]');
+        const textValue = row.querySelector('[data-condition-text-value]');
+        const optionValue = row.querySelector('[data-condition-option-value]');
+        const valueInput = row.querySelector('[data-condition-value-input]');
+        const valueSelect = row.querySelector('[data-condition-value-select]');
+        const operators = ['number', 'calculated'].includes(fieldType)
+            ? ['eq', 'neq', 'gt', 'gte', 'lt', 'lte']
+            : ['boolean', 'date', 'select'].includes(fieldType)
+                ? ['eq', 'neq']
+                : ['eq', 'neq', 'contains', 'not_contains'];
+        const currentOperator = operatorSelect?.value || 'eq';
+        if (operatorSelect) {
+            operatorSelect.replaceChildren(...operators.map((operator) => {
+                const option = document.createElement('option');
+                option.value = operator;
+                option.textContent = gatewayOperatorLabels[operator];
+                return option;
+            }));
+            operatorSelect.value = operators.includes(currentOperator) ? currentOperator : 'eq';
+        }
+
+        const choices = fieldType === 'boolean'
+            ? [{ value: 'true', label: 'Sim' }, { value: 'false', label: 'Não' }]
+            : fieldType === 'select'
+                ? (() => { try { return JSON.parse(selectedField.dataset.fieldOptions || '[]').map((value) => ({ value, label: value })); } catch { return []; } })()
+                : null;
+
+        if (choices && valueSelect) {
+            const previousValue = valueInput?.value || valueSelect.value;
+            valueSelect.replaceChildren(new Option('Selecione um valor', ''), ...choices.map(({ value, label }) => new Option(label, value)));
+            valueSelect.value = choices.some(({ value }) => String(value) === previousValue) ? previousValue : '';
+            if (valueInput) valueInput.disabled = true;
+            if (textValue) textValue.hidden = true;
+            if (optionValue) optionValue.hidden = false;
+            valueSelect.disabled = false;
+        } else {
+            if (valueInput) {
+                valueInput.disabled = false;
+                valueInput.type = ['number', 'calculated'].includes(fieldType) ? 'number' : 'text';
+                valueInput.step = ['number', 'calculated'].includes(fieldType) ? 'any' : '';
+            }
+            if (textValue) textValue.hidden = false;
+            if (optionValue) optionValue.hidden = true;
+            if (valueSelect) valueSelect.disabled = true;
+        }
+    };
+
+    const updateCard = () => {
+        const useConditions = Boolean(conditionRules) && (!modeSelect || modeSelect.value === 'conditions');
+        setSectionEnabled(approvalRules, !useConditions);
+        setSectionEnabled(conditionRules, useConditions);
+        card.querySelectorAll('[data-gateway-condition-row]').forEach((row) => {
+            const typeSelect = row.querySelector('[data-gateway-condition-type]');
+            const inputArea = row.querySelector('[data-gateway-condition-inputs]');
+            const isConditional = useConditions && typeSelect?.value === 'condition';
+            if (inputArea) {
+                inputArea.hidden = !isConditional;
+                inputArea.querySelectorAll('input, select, button').forEach((control) => { control.disabled = !isConditional; });
+            }
+            if (isConditional) row.querySelectorAll('[data-gateway-rule-row]').forEach(updateRuleRow);
+        });
+    };
+
+    card.addEventListener('change', (event) => {
+        if (event.target.matches('[data-gateway-mode]')) updateCard();
+        if (event.target.matches('[data-gateway-condition-type]')) updateCard();
+        if (event.target.matches('[data-condition-field]')) updateRuleRow(event.target.closest('[data-gateway-rule-row]'));
+    });
+
+    card.addEventListener('click', (event) => {
+        const addButton = event.target.closest('[data-add-gateway-condition]');
+        if (addButton) {
+            const conditionArea = addButton.closest('[data-gateway-condition-inputs]');
+            const list = conditionArea?.querySelector('[data-gateway-rule-list]');
+            const template = conditionArea?.querySelector('[data-gateway-rule-template]');
+            if (!(list instanceof HTMLElement) || !(template instanceof HTMLTemplateElement)) return;
+            const usedIndexes = [...list.querySelectorAll('[name]')].map((control) => Number(control.name.match(/\[conditions\]\[(\d+)\]/)?.[1] ?? -1));
+            const index = Math.max(-1, ...usedIndexes) + 1;
+            const row = template.content.cloneNode(true);
+            row.querySelectorAll('[name]').forEach((control) => {
+                control.name = control.name.replaceAll('__RULE_INDEX__', String(index));
+            });
+            list.append(row);
+            const addedRow = list.lastElementChild;
+            if (addedRow) updateRuleRow(addedRow);
+            return;
+        }
+
+        const removeButton = event.target.closest('[data-remove-gateway-condition]');
+        if (removeButton) {
+            const row = removeButton.closest('[data-gateway-rule-row]');
+            const list = row?.parentElement;
+            if (row && list?.querySelectorAll('[data-gateway-rule-row]').length > 1) row.remove();
+        }
+    });
+
+    updateCard();
+});

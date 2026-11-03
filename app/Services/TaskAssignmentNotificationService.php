@@ -7,6 +7,7 @@ use App\Jobs\SendTaskAssignmentEmail;
 use App\Models\ProcessGroup;
 use App\Models\ProcessInstance;
 use App\Models\TaskDelegationTransfer;
+use App\Models\TaskEscalationTransfer;
 use App\Models\User;
 use App\Models\UserTaskDelegation;
 use Illuminate\Support\Carbon;
@@ -167,6 +168,11 @@ class TaskAssignmentNotificationService
     /** @return \Illuminate\Support\Collection<int, User> */
     private function recipientsForTask(ProcessInstance $instance, string $taskKey, mixed $assignee, string $taskId)
     {
+        $escalation = TaskEscalationTransfer::query()->where('flowable_task_id', $taskId)->first();
+        if ($escalation) {
+            return User::query()->whereKey($escalation->escalated_to_user_id)->where('is_active', true)->get();
+        }
+
         $transfer = TaskDelegationTransfer::query()->where('flowable_task_id', $taskId)->first();
         if ($transfer) {
             return User::query()->whereKey($transfer->delegate_user_id)->where('is_active', true)->get();
@@ -227,6 +233,10 @@ class TaskAssignmentNotificationService
 
     private function delegationContextForTask(ProcessInstance $instance, string $taskKey, string $taskId): ?string
     {
+        if (TaskEscalationTransfer::query()->where('flowable_task_id', $taskId)->exists()) {
+            return 'Esta tarefa foi encaminhada automaticamente após o vencimento do prazo.';
+        }
+
         $transfer = TaskDelegationTransfer::query()->with('originalUser')->where('flowable_task_id', $taskId)->first();
         if ($transfer) {
             return 'Você está atuando como substituto de '.$transfer->originalUser->name.'.';

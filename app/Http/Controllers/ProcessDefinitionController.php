@@ -215,6 +215,7 @@ class ProcessDefinitionController extends Controller
                 'task_user_assignments' => $source->task_user_assignments,
                 'task_form_schemas' => $source->task_form_schemas,
                 'gateway_routes' => $source->gateway_routes,
+                'gateway_conditions' => $source->gateway_conditions,
                 'created_by' => $request->user()->id,
                 'updated_by' => $request->user()->id,
             ]);
@@ -399,7 +400,8 @@ class ProcessDefinitionController extends Controller
                 }
 
                 $gatewayRoutes = $locked->gateway_routes ?? [];
-                $preparedXml = $this->prepareBpmnForPublication($locked->bpmn_xml ?? '', $locked->id, $taskGroupAssignments, $groupsById->all(), $taskFormSchemas, $gatewayRoutes, $taskUserAssignments);
+                $gatewayConditions = $locked->gateway_conditions ?? [];
+                $preparedXml = $this->prepareBpmnForPublication($locked->bpmn_xml ?? '', $locked->id, $taskGroupAssignments, $groupsById->all(), $taskFormSchemas, $gatewayRoutes, $taskUserAssignments, $gatewayConditions, $locked->form_schema ?? []);
 
                 if ($locked->status === 'published') {
                     if ($locked->published_bpmn_hash === hash('sha256', $preparedXml)) {
@@ -518,7 +520,7 @@ class ProcessDefinitionController extends Controller
         ]);
     }
 
-    private function prepareBpmnForPublication(string $xml, int $processDefinitionId, array $taskGroupAssignments = [], array $groupsById = [], array $taskFormSchemas = [], array $gatewayRoutes = [], array $taskUserAssignments = []): string
+    private function prepareBpmnForPublication(string $xml, int $processDefinitionId, array $taskGroupAssignments = [], array $groupsById = [], array $taskFormSchemas = [], array $gatewayRoutes = [], array $taskUserAssignments = [], array $gatewayConditions = [], array $formSchema = []): string
     {
         $document = new DOMDocument();
         $document->resolveExternals = false;
@@ -595,6 +597,9 @@ class ProcessDefinitionController extends Controller
             $approvalGateways = ProcessTaskAssignmentController::decisionGateways($xml);
             if ($hasApprovalTask && $approvalGateways !== []) {
                 foreach ($approvalGateways as $gatewayId => $gateway) {
+                    if (isset($gatewayConditions[$gatewayId])) {
+                        continue;
+                    }
                     $routes = $gatewayRoutes[$gatewayId] ?? [];
                     if (! is_array($routes) || count($routes) !== count($gateway['flows'])) {
                         throw new FlowablePublicationRejected('Every approval gateway output must have a decision route.');
@@ -675,6 +680,120 @@ class ProcessDefinitionController extends Controller
                 } else {
                     $gateway->removeAttribute('default');
                 }
+            }
+        }
+
+        if ($gatewayConditions !== []) {
+            $xsiNamespace = 'http://www.w3.org/2001/XMLSchema-instance';
+            $document->documentElement->setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:xsi', $xsiNamespace);
+            $flowsById = [];
+            foreach ($document->getElementsByTagNameNS($namespace, 'sequenceFlow') as $flow) {
+                if ($flow instanceof DOMElement) {
+                    $flowsById[$flow->getAttribute('id')] = $flow;
+                }
+            }
+            $formFields = collect($formSchema)->keyBy('key');
+
+            foreach ($gatewayConditions as $gatewayId => $conditions) {
+                $gateway = null;
+                foreach ($document->getElementsByTagNameNS($namespace, 'exclusiveGateway') as $candidate) {
+                    if ($candidate instanceof DOMElement && $candidate->getAttribute('id') === (string) $gatewayId) {
+                        $gateway = $candidate;
+                        break;
+                    }
+                }
+
+                if (! $gateway instanceof DOMElement || ! is_array($conditions) || $conditions === []) {
+                    throw new FlowablePublicationRejected('A business-rule gateway is missing from the BPMN model.');
+                }
+
+                $outgoingIds = [];
+                foreach ($document->getElementsByTagNameNS($namespace, 'sequenceFlow') as $flow) {
+                    if ($flow instanceof DOMElement && $flow->getAttribute('sourceRef') === (string) $gatewayId) {
+                        $outgoingIds[] = $flow->getAttribute('id');
+                    }
+                }
+                if (array_diff($outgoingIds, array_keys($conditions)) !== [] || array_diff(array_keys($conditions), $outgoingIds) !== []) {
+                    throw new FlowablePublicationRejected('Every business-rule gateway output must have a condition or be the default path.');
+                }
+
+                $defaultFlowId = null;
+                foreach ($conditions as $flowId => $rule) {
+                    $flow = $flowsById[$flowId] ?? null;
+                    if (! $flow instanceof DOMElement || ! is_array($rule)) {
+                        throw new FlowablePublicationRejected('A business gateway route is invalid.');
+                    }
+
+                    foreach (iterator_to_array($flow->childNodes) as $child) {
+                        if ($child instanceof DOMElement && $child->namespaceURI === $namespace && $child->localName === 'conditionExpression') {
+                            $flow->removeChild($child);
+                        }
+                    }
+
+                    if (($rule['type'] ?? null) === 'default') {
+                        if ($defaultFlowId !== null) {
+                            throw new FlowablePublicationRejected('A business-rule gateway can have only one default output.');
+                        }
+                        $defaultFlowId = (string) $flowId;
+                        continue;
+                    }
+
+                    $conditions = collect($rule['conditions'] ?? [])->filter(fn ($condition): bool => is_array($condition));
+                    $match = $rule['match'] ?? 'all';
+                    if ($conditions->isEmpty() || ! in_array($match, ['all', 'any'], true)) {
+                        throw new FlowablePublicationRejected('A business-rule gateway condition is invalid.');
+                    }
+
+                    $expressions = $conditions->map(function (array $item) use ($formFields): string {
+                        $fieldKey = $item['field'] ?? null;
+                        $field = is_string($fieldKey) ? $formFields->get($fieldKey) : null;
+                        $operator = $item['operator'] ?? null;
+                        $value = $item['value'] ?? null;
+                        if (! is_array($field)
+                            || ! is_string($value)
+                            || preg_match('/^[a-z][a-z0-9_]{0,49}$/', (string) $fieldKey) !== 1) {
+                            throw new FlowablePublicationRejected('A business-rule gateway condition is invalid.');
+                        }
+
+                        $fieldType = $field['type'] ?? 'text';
+                        $allowedOperators = match ($fieldType) {
+                            'number', 'calculated' => ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'],
+                            'boolean', 'date', 'select' => ['eq', 'neq'],
+                            default => ['eq', 'neq', 'contains', 'not_contains'],
+                        };
+                        if (! in_array($operator, $allowedOperators, true)) {
+                            throw new FlowablePublicationRejected('A business-rule gateway operator is incompatible with its field.');
+                        }
+
+                        $expressionValue = match ($fieldType) {
+                            'number', 'calculated' => is_numeric($value) ? (string) (0 + $value) : throw new FlowablePublicationRejected('A numeric gateway condition has an invalid value.'),
+                            'boolean' => in_array($value, ['true', 'false'], true) ? $value : throw new FlowablePublicationRejected('A boolean gateway condition has an invalid value.'),
+                            default => "'".str_replace(['\\', "'"], ['\\\\', "\\'"], $value)."'",
+                        };
+                        $expressionOperator = match ($operator) {
+                            'eq' => '==', 'neq' => '!=', 'gt' => '>', 'gte' => '>=', 'lt' => '<', 'lte' => '<=',
+                            'contains', 'not_contains' => null,
+                        };
+
+                        return $operator === 'contains'
+                            ? "({$fieldKey} != null && {$fieldKey}.contains({$expressionValue}))"
+                            : ($operator === 'not_contains'
+                                ? "({$fieldKey} == null || !{$fieldKey}.contains({$expressionValue}))"
+                                : "({$fieldKey} {$expressionOperator} {$expressionValue})");
+                    })->all();
+                    $joiner = $match === 'all' ? ' && ' : ' || ';
+                    $expression = '${'.implode($joiner, $expressions).'}';
+
+                    $condition = $document->createElementNS($namespace, 'bpmn:conditionExpression');
+                    $condition->setAttributeNS($xsiNamespace, 'xsi:type', 'bpmn:tFormalExpression');
+                    $condition->appendChild($document->createTextNode($expression));
+                    $flow->appendChild($condition);
+                }
+
+                if ($defaultFlowId === null) {
+                    throw new FlowablePublicationRejected('A business-rule gateway must have one default output.');
+                }
+                $gateway->setAttribute('default', $defaultFlowId);
             }
         }
 

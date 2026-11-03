@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\ProcessInstance;
 use App\Models\TaskDelegationTransfer;
+use App\Models\TaskEscalationTransfer;
 use App\Models\UserTaskDelegation;
 use App\Services\FlowableClient;
 use App\Services\TaskAssignmentNotificationService;
@@ -43,6 +44,10 @@ class ApplyTaskDelegations extends Command
 
             $tasks = $flowable->allActiveTasks();
             $processInstanceIds = collect($tasks)->pluck('processInstanceId')->filter()->unique()->values();
+            $escalatedTaskIds = TaskEscalationTransfer::query()
+                ->whereIn('flowable_task_id', collect($tasks)->pluck('id')->filter()->values())
+                ->pluck('flowable_task_id')
+                ->flip();
             $instances = ProcessInstance::query()
                 ->with('processDefinition')
                 ->where('status', 'running')
@@ -57,6 +62,9 @@ class ApplyTaskDelegations extends Command
                 $taskKey = $task['taskDefinitionKey'] ?? null;
                 $processInstanceId = $task['processInstanceId'] ?? null;
                 if (! is_string($taskId) || ! is_string($taskKey) || ! is_string($processInstanceId)) {
+                    continue;
+                }
+                if ($escalatedTaskIds->has($taskId)) {
                     continue;
                 }
 

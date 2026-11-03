@@ -66,7 +66,7 @@
 ## Fases seguintes
 
 4. Formulários dinâmicos — formulários iniciais e por etapa aceitam anexos privados e campos condicionais, com validação no navegador/servidor e autorização de download.
-5. Aprovações e regras — aprovação, rejeição com retorno configurável à etapa de preenchimento e retorno à aprovação implementados e validados no Flowable para o exemplo; ampliar cenários de execução.
+5. Aprovações e regras — além do resultado aprovado/rejeitado, rascunhos podem rotear por campos do formulário com critérios combinados por E/OU, caminho padrão e encaminhamento automático de tarefa vencida a um usuário escolhido; validar as novas regras e o escalonamento no Flowable.
 6. Notificações — contador, e-mail assíncrono de nova tarefa, alertas de prazo próximo/vencido, avisos de aprovação/devolução/rejeição/conclusão ao solicitante e monitoramento Master do outbox com reenvio manual implementados.
 7. Auditoria, prazos, indicadores e recursos corporativos — prazos por tarefa, trilha de auditoria, acompanhamento da etapa atual e métricas de duração média por etapa, atrasos e pendências por grupo implementados.
 8. Implantação interna.

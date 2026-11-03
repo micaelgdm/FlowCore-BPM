@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class ProcessTaskAssignmentController extends Controller
@@ -36,6 +37,21 @@ class ProcessTaskAssignmentController extends Controller
             ->mapWithKeys(fn ($routes, string $gatewayId): array => [$gatewayId => $routes->mapWithKeys(fn (array $route): array => [$route['flow_id'] => $route['outcome'] ?? ''])->all()])
             ->all();
         $gatewayBranches = self::decisionGateways($process->bpmn_xml ?? '');
+        $storedConditions = $process->gateway_conditions ?? [];
+        $postedConditions = collect(old('gateway_conditions', []))
+            ->filter(fn ($rule): bool => is_array($rule) && is_string($rule['gateway_id'] ?? null) && is_string($rule['flow_id'] ?? null))
+            ->groupBy('gateway_id')
+            ->mapWithKeys(fn ($rules, string $gatewayId): array => [$gatewayId => $rules->mapWithKeys(fn (array $rule): array => [$rule['flow_id'] => $rule])->all()])
+            ->all();
+        $formFields = collect($process->form_schema ?? [])
+            ->filter(fn ($field): bool => is_array($field) && in_array($field['type'] ?? null, ['text', 'textarea', 'number', 'date', 'select', 'boolean', 'calculated'], true))
+            ->map(fn (array $field): array => [
+                'key' => $field['key'],
+                'label' => $field['label'] ?? $field['key'],
+                'type' => $field['type'],
+                'options' => $field['options'] ?? [],
+            ])->values();
+        $gatewayModes = collect(old('gateway_modes', []))->mapWithKeys(fn ($mode): array => is_array($mode) && isset($mode['gateway_id'], $mode['mode']) ? [$mode['gateway_id'] => $mode['mode']] : [])->all();
 
         return view('processes.tasks', [
             'process' => $process,
@@ -58,6 +74,9 @@ class ProcessTaskAssignmentController extends Controller
                 })->all(),
             'taskForms' => session()->hasOldInput('task_forms') ? $postedTaskForms : ($process->task_form_schemas ?? []),
             'gatewayRoutes' => session()->hasOldInput('gateway_routes') ? $postedGatewayRoutes : ($process->gateway_routes ?? []),
+            'gatewayConditions' => session()->hasOldInput('gateway_conditions') ? $postedConditions : $storedConditions,
+            'gatewayModes' => session()->hasOldInput('gateway_modes') ? $gatewayModes : collect($storedConditions)->mapWithKeys(fn ($rules, $gatewayId): array => [$gatewayId => 'conditions'])->all(),
+            'conditionFields' => $formFields,
         ]);
     }
 
@@ -78,6 +97,7 @@ class ProcessTaskAssignmentController extends Controller
             'task_forms.*.kind' => ['required', 'in:work,approval'],
             'task_forms.*.show_process_data' => ['nullable', 'boolean'],
             'task_forms.*.sla_hours' => ['nullable', 'integer', 'min:1', 'max:8760'],
+            'task_forms.*.escalation_user_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('is_active', true)],
             'task_forms.*.fields' => ['nullable', 'array', 'max:30'],
             'task_forms.*.fields.*.key' => ['required', 'string', 'regex:/^[a-z][a-z0-9_]{0,49}$/', 'not_in:idempotency_key,_token,_method'],
             'task_forms.*.fields.*.label' => ['required', 'string', 'max:100'],
@@ -99,9 +119,21 @@ class ProcessTaskAssignmentController extends Controller
             'gateway_routes.*.gateway_id' => ['required', 'string', 'max:255'],
             'gateway_routes.*.flow_id' => ['required', 'string', 'distinct', 'max:255'],
             'gateway_routes.*.outcome' => ['required', 'string', 'max:255'],
+            'gateway_modes' => ['nullable', 'array', 'max:50'],
+            'gateway_modes.*.gateway_id' => ['required', 'string', 'distinct', 'max:255'],
+            'gateway_modes.*.mode' => ['required', 'in:approval,conditions'],
+            'gateway_conditions' => ['nullable', 'array', 'max:100'],
+            'gateway_conditions.*.gateway_id' => ['required', 'string', 'max:255'],
+            'gateway_conditions.*.flow_id' => ['required', 'string', 'max:255'],
+            'gateway_conditions.*.type' => ['required', 'in:condition,default'],
+            'gateway_conditions.*.match' => ['nullable', 'in:all,any'],
+            'gateway_conditions.*.conditions' => ['nullable', 'array', 'max:10'],
+            'gateway_conditions.*.conditions.*.field' => ['nullable', 'string', 'max:50'],
+            'gateway_conditions.*.conditions.*.operator' => ['nullable', 'in:eq,neq,gt,gte,lt,lte,contains,not_contains'],
+            'gateway_conditions.*.conditions.*.value' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $validator->after(function ($validator) use ($request, $userTasks, $gatewayBranches): void {
+        $validator->after(function ($validator) use ($request, $userTasks, $gatewayBranches, $process): void {
             $assignments = collect($request->input('assignments', []))
                 ->filter(fn ($assignment): bool => is_array($assignment) && is_string($assignment['task_id'] ?? null))
                 ->keyBy('task_id');
@@ -137,6 +169,11 @@ class ProcessTaskAssignmentController extends Controller
                 if (! $taskForms->has($taskId)) {
                     $validator->errors()->add("task_forms.{$taskId}", "Configure o formulário da tarefa ‘{$task['name']}’.");
                     continue;
+                }
+
+                if (filled($taskForms->get($taskId)['escalation_user_id'] ?? null)
+                    && ! filled($taskForms->get($taskId)['sla_hours'] ?? null)) {
+                    $validator->errors()->add("task_forms.{$taskId}.escalation_user_id", "Defina um prazo para encaminhar a tarefa ‘{$task['name']}’ automaticamente.");
                 }
 
                 $fields = collect($taskForms->get($taskId)['fields'] ?? [])
@@ -188,6 +225,13 @@ class ProcessTaskAssignmentController extends Controller
 
             $approvalConfigured = collect($request->input('task_forms', []))
                 ->contains(fn ($taskForm): bool => is_array($taskForm) && ($taskForm['kind'] ?? null) === 'approval');
+            $formFields = collect($process->form_schema ?? [])->keyBy('key');
+            $gatewayModes = collect($request->input('gateway_modes', []))
+                ->filter(fn ($mode): bool => is_array($mode) && is_string($mode['gateway_id'] ?? null))
+                ->keyBy('gateway_id');
+            $postedConditions = collect($request->input('gateway_conditions', []))
+                ->filter(fn ($rule): bool => is_array($rule) && is_string($rule['gateway_id'] ?? null) && is_string($rule['flow_id'] ?? null))
+                ->groupBy('gateway_id');
             $routes = collect($request->input('gateway_routes', []))
                 ->filter(fn ($route): bool => is_array($route) && is_string($route['gateway_id'] ?? null) && is_string($route['flow_id'] ?? null))
                 ->groupBy('gateway_id');
@@ -195,6 +239,19 @@ class ProcessTaskAssignmentController extends Controller
             if (! $approvalConfigured && $routes->isNotEmpty()) {
                 $validator->errors()->add('gateway_routes', 'Configure uma etapa de aprovação antes de definir saídas por decisão.');
                 return;
+            }
+
+            foreach ($gatewayModes->keys() as $gatewayId) {
+                if (! array_key_exists($gatewayId, $gatewayBranches)) {
+                    $validator->errors()->add('gateway_modes', 'O diagrama mudou. Reabra as regras de roteamento e tente novamente.');
+                    return;
+                }
+            }
+            foreach ($postedConditions->keys() as $gatewayId) {
+                if (! array_key_exists($gatewayId, $gatewayBranches)) {
+                    $validator->errors()->add('gateway_conditions', 'O diagrama mudou. Reabra as regras de roteamento e tente novamente.');
+                    return;
+                }
             }
 
             foreach ($routes->keys() as $gatewayId) {
@@ -205,10 +262,78 @@ class ProcessTaskAssignmentController extends Controller
             }
 
             $hasDecisionGateway = false;
+            $hasApprovalModeGateway = false;
             foreach ($gatewayBranches as $gatewayId => $gateway) {
+                $mode = $gatewayModes->get($gatewayId)['mode'] ?? 'approval';
+                if ($mode === 'conditions') {
+                    if ($gateway['type'] !== 'exclusive') {
+                        $validator->errors()->add("gateway_modes.{$gatewayId}.mode", 'Regras por campos do formulário exigem um Gateway Exclusivo.');
+                        continue;
+                    }
+
+                    $rules = $postedConditions->get($gatewayId, collect());
+                    $flowIds = $rules->pluck('flow_id')->all();
+                    $validFlowIds = array_column($gateway['flows'], 'id');
+                    if (count($flowIds) !== count($validFlowIds) || count(array_unique($flowIds)) !== count($flowIds) || array_diff($validFlowIds, $flowIds) !== [] || array_diff($flowIds, $validFlowIds) !== []) {
+                        $validator->errors()->add("gateway_conditions.{$gatewayId}", "Configure uma condição ou a saída padrão para cada caminho do gateway ‘{$gateway['name']}’.");
+                        continue;
+                    }
+
+                    if ($rules->where('type', 'default')->count() !== 1) {
+                        $validator->errors()->add("gateway_conditions.{$gatewayId}", "Defina exatamente uma saída padrão para o gateway ‘{$gateway['name']}’.");
+                    }
+                    if ($rules->where('type', 'condition')->isEmpty()) {
+                        $validator->errors()->add("gateway_conditions.{$gatewayId}", "Configure ao menos uma condição além da saída padrão no gateway ‘{$gateway['name']}’.");
+                    }
+
+                    foreach ($rules as $ruleIndex => $rule) {
+                        if (($rule['type'] ?? null) === 'default') {
+                            continue;
+                        }
+                        $conditions = collect($rule['conditions'] ?? [])->filter(fn ($condition): bool => is_array($condition));
+                        if ($conditions->isEmpty()) {
+                            $validator->errors()->add("gateway_conditions.{$ruleIndex}.conditions", 'Adicione ao menos uma condição para este caminho.');
+                            continue;
+                        }
+                        if (! in_array($rule['match'] ?? 'all', ['all', 'any'], true)) {
+                            $validator->errors()->add("gateway_conditions.{$ruleIndex}.match", 'Escolha como as condições serão combinadas.');
+                        }
+                        foreach ($conditions as $conditionIndex => $condition) {
+                            $field = $formFields->get($condition['field'] ?? '');
+                            $errorPrefix = "gateway_conditions.{$ruleIndex}.conditions.{$conditionIndex}";
+                            if (! is_array($field)) {
+                                $validator->errors()->add("{$errorPrefix}.field", 'Selecione um campo do formulário.');
+                                continue;
+                            }
+                            $type = $field['type'] ?? 'text';
+                            $allowedOperators = match ($type) {
+                                'number', 'calculated' => ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'],
+                                'boolean', 'date', 'select' => ['eq', 'neq'],
+                                default => ['eq', 'neq', 'contains', 'not_contains'],
+                            };
+                            if (! in_array($condition['operator'] ?? null, $allowedOperators, true)) {
+                                $validator->errors()->add("{$errorPrefix}.operator", 'Escolha uma operação compatível com o campo.');
+                            }
+                            $value = $condition['value'] ?? null;
+                            if (! is_string($value) || trim($value) === '') {
+                                $validator->errors()->add("{$errorPrefix}.value", 'Informe o valor para a regra.');
+                            } elseif (in_array($type, ['number', 'calculated'], true) && ! is_numeric($value)) {
+                                $validator->errors()->add("{$errorPrefix}.value", 'Informe um valor numérico válido.');
+                            } elseif ($type === 'boolean' && ! in_array($value, ['true', 'false'], true)) {
+                                $validator->errors()->add("{$errorPrefix}.value", 'Escolha Sim ou Não.');
+                            } elseif ($type === 'select' && ! in_array($value, $field['options'] ?? [], true)) {
+                                $validator->errors()->add("{$errorPrefix}.value", 'Escolha uma das opções do campo.');
+                            }
+                        }
+                    }
+                    continue;
+                }
+
                 if (! $approvalConfigured) {
                     continue;
                 }
+
+                $hasApprovalModeGateway = true;
 
                 $gatewayRoutes = $routes->get($gatewayId, collect());
                 $flowIds = $gatewayRoutes->pluck('flow_id')->all();
@@ -242,7 +367,7 @@ class ProcessTaskAssignmentController extends Controller
                 }
             }
 
-            if ($approvalConfigured && $gatewayBranches !== [] && ! $hasDecisionGateway) {
+            if ($approvalConfigured && $hasApprovalModeGateway && ! $hasDecisionGateway) {
                 $validator->errors()->add('gateway_routes', 'Configure em um gateway uma saída Aprovada e uma saída de rejeição ou retorno para correção.');
             }
         });
@@ -295,23 +420,45 @@ class ProcessTaskAssignmentController extends Controller
             if (filled($taskForm['sla_hours'] ?? null)) {
                 $normalizedTaskForm['sla_hours'] = (int) $taskForm['sla_hours'];
             }
+            if (filled($taskForm['escalation_user_id'] ?? null)) {
+                $normalizedTaskForm['escalation_user_id'] = (int) $taskForm['escalation_user_id'];
+            }
 
             return [$taskForm['task_id'] => $normalizedTaskForm];
         })->all();
         $gatewayRoutes = collect($data['gateway_routes'] ?? [])->groupBy('gateway_id')->mapWithKeys(function ($routes, string $gatewayId): array {
             return [$gatewayId => $routes->mapWithKeys(fn (array $route): array => [$route['flow_id'] => $route['outcome']])->all()];
         })->all();
+        $gatewayModes = collect($data['gateway_modes'] ?? [])->mapWithKeys(fn (array $mode): array => [$mode['gateway_id'] => $mode['mode']])->all();
+        $gatewayConditions = collect($data['gateway_conditions'] ?? [])->groupBy('gateway_id')->mapWithKeys(function ($rules, string $gatewayId): array {
+            return [$gatewayId => $rules->mapWithKeys(fn (array $rule): array => [$rule['flow_id'] => ($rule['type'] === 'default'
+                ? ['type' => 'default']
+                : ['type' => 'condition', 'match' => $rule['match'] ?? 'all', 'conditions' => collect($rule['conditions'] ?? [])->map(fn (array $condition): array => [
+                    'field' => $condition['field'],
+                    'operator' => $condition['operator'],
+                    'value' => trim($condition['value']),
+                ])->values()->all()])])->all()];
+        })->all();
+        foreach ($gatewayModes as $gatewayId => $mode) {
+            if ($mode === 'conditions') {
+                unset($gatewayRoutes[$gatewayId]);
+            } else {
+                unset($gatewayConditions[$gatewayId]);
+            }
+        }
         $previousConfiguration = [
             'task_group_assignments' => $process->task_group_assignments ?? [],
             'task_user_assignments' => $process->task_user_assignments ?? [],
             'task_form_schemas' => $process->task_form_schemas ?? [],
             'gateway_routes' => $process->gateway_routes ?? [],
+            'gateway_conditions' => $process->gateway_conditions ?? [],
         ];
         $nextConfiguration = [
             'task_group_assignments' => $groupAssignments,
             'task_user_assignments' => $userAssignments,
             'task_form_schemas' => $taskForms,
             'gateway_routes' => $gatewayRoutes,
+            'gateway_conditions' => $gatewayConditions,
         ];
         DB::transaction(function () use ($process, $request, $previousConfiguration, $nextConfiguration): void {
             $process->forceFill($nextConfiguration + ['updated_by' => $request->user()->id])->save();

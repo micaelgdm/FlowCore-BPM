@@ -49,7 +49,8 @@
                             <label class="fc-form-field" data-assignment-group @if ($assignmentType !== 'group') hidden @endif><span>Grupo responsável</span><select name="assignments[{{ $taskIndex }}][group_id]" data-assignment-value><option value="">Escolha um grupo</option>@foreach ($groups as $group)<option value="{{ $group->id }}" @selected((int) ($assignment['group_id'] ?? 0) === $group->id)>{{ $group->name }}</option>@endforeach</select></label>
                             <label class="fc-form-field" data-assignment-user @if ($assignmentType !== 'user') hidden @endif><span>Usuário responsável</span><select name="assignments[{{ $taskIndex }}][user_id]" data-assignment-value><option value="">Escolha uma pessoa</option>@foreach ($users as $user)<option value="{{ $user->id }}" @selected((int) ($assignment['user_id'] ?? 0) === $user->id)>{{ $user->name }} · {{ $user->email }}</option>@endforeach</select></label>
                             <label class="fc-form-field"><span>Tipo de etapa</span><select name="task_forms[{{ $taskIndex }}][kind]" required><option value="work" @selected(($taskForm['kind'] ?? 'work') === 'work')>Preenchimento de dados</option><option value="approval" @selected(($taskForm['kind'] ?? 'work') === 'approval')>Aprovação</option></select><small>A aprovação grava a variável BPMN fc_decision para uso em gateways exclusivos.</small></label>
-                            <label class="fc-form-field"><span>Prazo da tarefa (horas corridas)</span><input type="number" name="task_forms[{{ $taskIndex }}][sla_hours]" min="1" max="8760" step="1" value="{{ $taskForm['sla_hours'] ?? '' }}" placeholder="Sem prazo"><small>O prazo começa quando a tarefa chega ao grupo. Deixe vazio para não controlar vencimento.</small></label>
+                            <label class="fc-form-field"><span>Prazo da tarefa (horas corridas)</span><input type="number" name="task_forms[{{ $taskIndex }}][sla_hours]" min="1" max="8760" step="1" value="{{ $taskForm['sla_hours'] ?? '' }}" placeholder="Sem prazo"><small>O prazo começa quando a tarefa chega ao responsável. Deixe vazio para não controlar vencimento.</small></label>
+                            <label class="fc-form-field"><span>Encaminhar após vencer</span><select name="task_forms[{{ $taskIndex }}][escalation_user_id]"><option value="">Manter com o responsável atual</option>@foreach ($users as $user)<option value="{{ $user->id }}" @selected((int) ($taskForm['escalation_user_id'] ?? 0) === $user->id)>{{ $user->name }} · {{ $user->email }}</option>@endforeach</select><small>Quando o prazo vencer, a tarefa será atribuída a esta pessoa automaticamente.</small></label>
                         </div>
                         <label class="fc-process-data-toggle">
                             <input type="hidden" name="task_forms[{{ $taskIndex }}][show_process_data]" value="0">
@@ -69,16 +70,26 @@
                     </details>
                     @endforeach
                     @php($hasApprovalTask = collect($userTasks)->contains(fn ($task, $taskId) => ($taskForms[$taskId]['kind'] ?? 'work') === 'approval') )
-                    @if ($hasApprovalTask && count($gatewayBranches) > 0)
+                    @if (count($gatewayBranches) > 0)
                         <section class="fc-gateway-routes">
-                            <div><span class="fc-eyebrow">RESULTADO DA APROVAÇÃO</span><h3>Saídas dos gateways de decisão</h3><p>Associe cada saída à aprovação, rejeição ou tarefa para correção. Um Gateway Inclusivo permite devolver a mais de um setor ao mesmo tempo.</p></div>
+                            <div><span class="fc-eyebrow">REGRAS DE ROTEAMENTO</span><h3>Decisões e caminhos do processo</h3><p>Use o resultado de uma aprovação ou avalie dados do formulário, como departamento, cargo e valor, para direcionar cada solicitação.</p></div>
                             @if ($hasInclusiveGateways)
                                 <div class="fc-note"><strong>Devolução para vários setores</strong><span>No editor, substitua o gateway após a aprovação por um Gateway Inclusivo. Use uma saída para cada área e conecte as tarefas de correção a outro Gateway Inclusivo antes da aprovação, para aguardar todas as áreas selecionadas.</span></div>
                             @endif
                             @foreach ($gatewayBranches as $gatewayId => $gateway)
                                 @php($gatewayIndex = $loop->index)
-                                <article class="fc-gateway-card">
+                                @php($gatewayMode = $gatewayModes[$gatewayId] ?? ($hasApprovalTask ? 'approval' : 'conditions'))
+                                <article class="fc-gateway-card" data-gateway-mode-card>
                                     <h4>{{ $gateway['name'] }} <small>{{ $gateway['type'] === 'inclusive' ? 'Gateway inclusivo' : 'Gateway exclusivo' }}</small></h4><code>{{ $gatewayId }}</code>
+                                    @if ($gateway['type'] === 'exclusive')
+                                        @if ($hasApprovalTask)
+                                            <label class="fc-form-field fc-gateway-mode"><span>Como este gateway decide?</span><select name="gateway_modes[{{ $gatewayIndex }}][mode]" data-gateway-mode><option value="approval" @selected($gatewayMode === 'approval')>Resultado da aprovação</option><option value="conditions" @selected($gatewayMode === 'conditions')>Campos do formulário</option></select><input type="hidden" name="gateway_modes[{{ $gatewayIndex }}][gateway_id]" value="{{ $gatewayId }}"></label>
+                                        @else
+                                            <input type="hidden" name="gateway_modes[{{ $gatewayIndex }}][mode]" value="conditions"><input type="hidden" name="gateway_modes[{{ $gatewayIndex }}][gateway_id]" value="{{ $gatewayId }}">
+                                        @endif
+                                    @endif
+                                    <div data-gateway-approval @if ($gateway['type'] === 'exclusive' && $gatewayMode === 'conditions') hidden @endif>
+                                    @if ($hasApprovalTask)
                                     @foreach ($gateway['flows'] as $flowIndex => $flow)
                                         <div class="fc-gateway-flow">
                                             <span>{{ $flow['name'] }} <small>({{ $flow['id'] }})</small></span>
@@ -97,6 +108,51 @@
                                             </select>
                                         </div>
                                     @endforeach
+                                    @else
+                                        <div class="fc-note"><strong>Sem etapa de aprovação configurada</strong><span>Adicione uma etapa do tipo Aprovação para direcionar por resultado aprovado, rejeitado ou correção.</span></div>
+                                    @endif
+                                    </div>
+                                    @if ($gateway['type'] === 'exclusive')
+                                        <div class="fc-gateway-condition-list" data-gateway-conditions @if ($gatewayMode !== 'conditions') hidden @endif>
+                                            <p class="fc-gateway-rule-hint">Defina uma condição para os caminhos necessários e escolha exatamente um caminho padrão. Para decisões de aprovação, rejeição e correção, use “Resultado da aprovação”.</p>
+                                            @foreach ($gateway['flows'] as $flowIndex => $flow)
+                                                @php($ruleIndex = "{$gatewayIndex}_{$flowIndex}")
+                                                @php($savedRule = $gatewayConditions[$gatewayId][$flow['id']] ?? [])
+                                                @php($ruleType = $savedRule['type'] ?? ($flowIndex === count($gateway['flows']) - 1 ? 'default' : 'condition'))
+                                                <div class="fc-gateway-condition-row" data-gateway-condition-row>
+                                                    <div class="fc-gateway-condition-title"><strong>{{ $flow['name'] }}</strong><small>{{ $flow['id'] }}</small></div>
+                                                    <input type="hidden" name="gateway_conditions[{{ $ruleIndex }}][gateway_id]" value="{{ $gatewayId }}">
+                                                    <input type="hidden" name="gateway_conditions[{{ $ruleIndex }}][flow_id]" value="{{ $flow['id'] }}">
+                                                    <label class="fc-form-field"><span>Regra deste caminho</span><select name="gateway_conditions[{{ $ruleIndex }}][type]" data-gateway-condition-type><option value="condition" @selected($ruleType === 'condition')>Usar condição</option><option value="default" @selected($ruleType === 'default')>Caminho padrão</option></select></label>
+                                                    <div class="fc-gateway-condition-inputs" data-gateway-condition-inputs>
+                                                        <label class="fc-form-field fc-gateway-condition-match"><span>Combinar condições</span><select name="gateway_conditions[{{ $ruleIndex }}][match]" data-condition-match><option value="all" @selected(($savedRule['match'] ?? 'all') === 'all')>Todas devem corresponder (E)</option><option value="any" @selected(($savedRule['match'] ?? '') === 'any')>Qualquer uma pode corresponder (OU)</option></select></label>
+                                                        <div class="fc-gateway-rule-list" data-gateway-rule-list>
+                                                            @foreach (($savedRule['conditions'] ?? [[]]) as $conditionIndex => $savedCondition)
+                                                                <div class="fc-gateway-rule-row" data-gateway-rule-row>
+                                                                    <label class="fc-form-field"><span>Campo</span><select name="gateway_conditions[{{ $ruleIndex }}][conditions][{{ $conditionIndex }}][field]" data-condition-field required><option value="">Selecione um campo</option>@foreach ($conditionFields as $field)<option value="{{ $field['key'] }}" data-field-type="{{ $field['type'] }}" data-field-options="{{ json_encode($field['options'], JSON_HEX_APOS | JSON_HEX_QUOT) }}" @selected(($savedCondition['field'] ?? '') === $field['key'])>{{ $field['label'] }}</option>@endforeach</select></label>
+                                                                    <label class="fc-form-field"><span>Operador</span><select name="gateway_conditions[{{ $ruleIndex }}][conditions][{{ $conditionIndex }}][operator]" data-condition-operator required><option value="eq" @selected(($savedCondition['operator'] ?? 'eq') === 'eq')>é igual a</option><option value="neq" @selected(($savedCondition['operator'] ?? '') === 'neq')>é diferente de</option><option value="gt" @selected(($savedCondition['operator'] ?? '') === 'gt')>é maior que</option><option value="gte" @selected(($savedCondition['operator'] ?? '') === 'gte')>é maior ou igual a</option><option value="lt" @selected(($savedCondition['operator'] ?? '') === 'lt')>é menor que</option><option value="lte" @selected(($savedCondition['operator'] ?? '') === 'lte')>é menor ou igual a</option><option value="contains" @selected(($savedCondition['operator'] ?? '') === 'contains')>contém</option><option value="not_contains" @selected(($savedCondition['operator'] ?? '') === 'not_contains')>não contém</option></select></label>
+                                                                    <label class="fc-form-field" data-condition-text-value><span>Valor</span><input name="gateway_conditions[{{ $ruleIndex }}][conditions][{{ $conditionIndex }}][value]" value="{{ $savedCondition['value'] ?? '' }}" data-condition-value-input autocomplete="off" required></label>
+                                                                    <label class="fc-form-field" data-condition-option-value hidden><span>Valor</span><select name="gateway_conditions[{{ $ruleIndex }}][conditions][{{ $conditionIndex }}][value]" data-condition-value-select disabled><option value="">Selecione um valor</option></select></label>
+                                                                    <button type="button" class="fc-button fc-button-secondary" data-remove-gateway-condition aria-label="Remover condição">Remover</button>
+                                                                </div>
+                                                            @endforeach
+                                                        </div>
+                                                        <template data-gateway-rule-template>
+                                                            <div class="fc-gateway-rule-row" data-gateway-rule-row>
+                                                                <label class="fc-form-field"><span>Campo</span><select name="gateway_conditions[{{ $ruleIndex }}][conditions][__RULE_INDEX__][field]" data-condition-field required><option value="">Selecione um campo</option>@foreach ($conditionFields as $field)<option value="{{ $field['key'] }}" data-field-type="{{ $field['type'] }}" data-field-options="{{ json_encode($field['options'], JSON_HEX_APOS | JSON_HEX_QUOT) }}">{{ $field['label'] }}</option>@endforeach</select></label>
+                                                                <label class="fc-form-field"><span>Operador</span><select name="gateway_conditions[{{ $ruleIndex }}][conditions][__RULE_INDEX__][operator]" data-condition-operator required><option value="eq">é igual a</option><option value="neq">é diferente de</option><option value="gt">é maior que</option><option value="gte">é maior ou igual a</option><option value="lt">é menor que</option><option value="lte">é menor ou igual a</option><option value="contains">contém</option><option value="not_contains">não contém</option></select></label>
+                                                                <label class="fc-form-field" data-condition-text-value><span>Valor</span><input name="gateway_conditions[{{ $ruleIndex }}][conditions][__RULE_INDEX__][value]" data-condition-value-input autocomplete="off" required></label>
+                                                                <label class="fc-form-field" data-condition-option-value hidden><span>Valor</span><select name="gateway_conditions[{{ $ruleIndex }}][conditions][__RULE_INDEX__][value]" data-condition-value-select disabled><option value="">Selecione um valor</option></select></label>
+                                                                <button type="button" class="fc-button fc-button-secondary" data-remove-gateway-condition aria-label="Remover condição">Remover</button>
+                                                            </div>
+                                                        </template>
+                                                        <button type="button" class="fc-button fc-button-secondary fc-gateway-add-condition" data-add-gateway-condition>Adicionar condição</button>
+                                                    </div>
+                                                </div>
+                                            @endforeach
+                                            @if ($conditionFields->isEmpty())<div class="fc-note"><strong>O formulário inicial ainda não tem campos compatíveis</strong><span>Adicione campos como valor, departamento ou cargo ao formulário do solicitante para usá-los nas regras.</span></div>@endif
+                                        </div>
+                                    @endif
                                 </article>
                             @endforeach
                         </section>

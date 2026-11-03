@@ -41,13 +41,13 @@ Na raiz do projeto, inicie o serviço com:
 powershell -ExecutionPolicy Bypass -File .\engine-poc\start.ps1
 ```
 
-Para manter os status das solicitações sincronizados, deixe o agendador Laravel rodando em outro PowerShell:
+O `start.ps1` já inicia o agendador Laravel em segundo plano. Ele sincroniza os status, verifica prazos a cada cinco minutos e encaminha automaticamente tarefas vencidas para o usuário de escalonamento configurado. Se iniciar o Laravel sem esse script, mantenha o agendador rodando em outro PowerShell:
 
 ```powershell
 & 'C:\xamp85\php\php.exe' artisan schedule:work
 ```
 
-O agendador verifica até 25 solicitações em andamento por minuto e, a cada cinco minutos, procura tarefas na janela das últimas 24 horas do prazo ou já vencidas. Cada tipo de aviso é enviado uma vez por tarefa e responsável. Em servidor, configure o agendador do sistema operacional para chamar `artisan schedule:run` a cada minuto.
+O agendador verifica até 25 solicitações em andamento por minuto e, a cada cinco minutos, procura tarefas na janela das últimas 24 horas do prazo ou já vencidas. Cada tipo de aviso é enviado uma vez por tarefa e responsável. O encaminhamento automático por prazo roda a cada minuto. Em servidor, configure o agendador do sistema operacional para chamar `artisan schedule:run` a cada minuto.
 
 Para processar e-mails enfileirados, deixe também um worker ativo em outro PowerShell:
 
