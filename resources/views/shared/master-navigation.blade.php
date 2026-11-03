@@ -9,6 +9,7 @@
 <details class="fc-nav-dropdown">
     <summary class="fc-button fc-button-secondary">@include('shared.nav-icon', ['icon' => 'notifications'])Sistema<span class="fc-nav-chevron" aria-hidden="true"></span></summary>
     <div class="fc-nav-dropdown-menu">
+        <a href="{{ route('master.reports.index') }}">@include('shared.nav-icon', ['icon' => 'reports'])Relatórios</a>
         <a href="{{ route('master.notifications.index') }}">@include('shared.nav-icon', ['icon' => 'notifications'])Notificações</a>
         <a href="{{ route('master.audit.index') }}">@include('shared.nav-icon', ['icon' => 'audit'])Auditoria</a>
     </div>

@@ -853,7 +853,17 @@ class ProcessTaskController extends Controller
         $groupId = self::groupIdForTask($instance, $task);
 
         if (is_numeric($groupId)) {
+            $assignee = $task['assignee'] ?? null;
+            if (filled($assignee) && $assignee !== PortalProcessController::flowableAssignee($user->id)) {
+                return false;
+            }
+
             return $user->processGroups()->whereKey((int) $groupId)->exists();
+        }
+
+        $assignee = $task['assignee'] ?? null;
+        if (filled($assignee) && $assignee !== PortalProcessController::flowableAssignee($user->id)) {
+            return false;
         }
 
         return $instance->processDefinition->authorizedUsers->contains(

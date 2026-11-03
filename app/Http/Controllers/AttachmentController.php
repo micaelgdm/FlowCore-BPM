@@ -34,24 +34,32 @@ class AttachmentController extends Controller
             }
         }
 
-        abort_unless(is_array($attachment) && is_string($attachment['path'] ?? null), 404);
+        abort_unless(
+            is_array($attachment)
+                && is_string($attachment['path'] ?? null)
+                && str_starts_with($attachment['path'], 'flowcore-attachments/'),
+            404,
+        );
         abort_unless(Storage::disk('local')->exists($attachment['path']), 404);
+
+        $downloadName = basename(str_replace('\\', '/', (string) ($attachment['name'] ?? 'anexo')));
+        $downloadName = preg_replace('/[\x00-\x1F\x7F"]/', '_', $downloadName) ?: 'anexo';
 
         return Storage::disk('local')->download(
             $attachment['path'],
-            basename((string) ($attachment['name'] ?? 'anexo')),
-            ['Content-Type' => $attachment['mime'] ?? 'application/octet-stream'],
+            $downloadName,
+            [
+                'Content-Type' => 'application/octet-stream',
+                'X-Content-Type-Options' => 'nosniff',
+                'Cache-Control' => 'private, no-store, max-age=0',
+                'Pragma' => 'no-cache',
+            ],
         );
     }
 
     private function canViewAttachments(ProcessInstance $instance, User $user, FlowableClient $flowable): bool
     {
         if ($user->role === 'master' || $instance->started_by === $user->id) {
-            return true;
-        }
-
-        if ($instance->processDefinition->authorizedUsers->contains(fn (User $authorized): bool =>
-            $authorized->id === $user->id && ((bool) $authorized->pivot->can_view || (bool) $authorized->pivot->can_approve))) {
             return true;
         }
 

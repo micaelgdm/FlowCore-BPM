@@ -77,6 +77,7 @@ A prova implantou o BPMN de exemplo, iniciou o processo, concluiu uma tarefa hum
 - As respostas são validadas no servidor, guardadas como JSON e enviadas ao Flowable como variáveis do processo.
 - Tarefas de preenchimento e aprovação/rejeição registram ator, data, comentário e campos no histórico local.
 - Aprovação e devolução para uma tarefa de preenchimento podem seguir saídas configuradas em gateways exclusivos; execução completa dos ciclos ainda precisa de validação real no Flowable.
+- Relatórios Master filtram solicitações por período, processo, situação e grupo atual, exibem tempos médios por etapa e pendências/atrasos por grupo e exportam metadados de acompanhamento em CSV sem respostas de formulários.
 
 ## Segurança
 

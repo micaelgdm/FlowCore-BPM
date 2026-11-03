@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\PortalProcessController;
+use App\Http\Controllers\ProcessTaskController;
 use App\Models\ProcessDefinition;
+use App\Models\ProcessGroup;
 use App\Models\ProcessInstance;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,6 +41,25 @@ class ProcessTaskApprovalTest extends TestCase
             ->assertSee('Aprovar solicitação')
             ->assertSee('Compra para a equipe')
             ->assertSee(route('portal.tasks.approve', 'task-501'));
+    }
+
+    public function test_group_member_cannot_open_a_task_assigned_to_another_user(): void
+    {
+        $member = User::factory()->create(['role' => 'user', 'is_active' => true]);
+        $otherAssignee = User::factory()->create(['role' => 'user', 'is_active' => true]);
+        $instance = $this->runningInstance(User::factory()->create(['role' => 'approver', 'is_active' => true]));
+        $group = ProcessGroup::query()->create(['name' => 'Fiscal', 'flowable_group_id' => 'flowcore_group_test']);
+        $group->users()->attach($member->id);
+        $instance->processDefinition->forceFill(['task_group_assignments' => ['Task_Approval' => $group->id]])->save();
+
+        $task = [
+            'id' => 'task-assigned-to-someone-else',
+            'taskDefinitionKey' => 'Task_Approval',
+            'assignee' => PortalProcessController::flowableAssignee($otherAssignee->id),
+        ];
+
+        $this->assertFalse(ProcessTaskController::userCanAccessTask($instance, $task, $member));
+        $this->assertTrue(ProcessTaskController::userCanAccessTask($instance, array_merge($task, ['assignee' => null]), $member));
     }
 
     public function test_a_new_user_task_is_assigned_to_the_process_approver(): void

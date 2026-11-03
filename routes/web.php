@@ -13,6 +13,7 @@ use App\Http\Controllers\ProcessGroupController;
 use App\Http\Controllers\ProcessTaskController;
 use App\Http\Controllers\ProcessTaskAssignmentController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ReportController;
 use App\Http\Controllers\UserTaskDelegationController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
@@ -30,11 +31,11 @@ Route::get('/', function (Request $request) {
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'create'])->name('login');
-    Route::post('/login', [AuthController::class, 'store'])->name('login.store');
+    Route::post('/login', [AuthController::class, 'store'])->middleware('throttle:5,1')->name('login.store');
     Route::get('/forgot-password', [AuthController::class, 'requestPasswordReset'])->name('password.request');
-    Route::post('/forgot-password', [AuthController::class, 'sendPasswordResetLink'])->name('password.email');
+    Route::post('/forgot-password', [AuthController::class, 'sendPasswordResetLink'])->middleware('throttle:3,1')->name('password.email');
     Route::get('/reset-password/{token}', [AuthController::class, 'resetPasswordForm'])->name('password.reset');
-    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.update');
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1')->name('password.update');
 });
 
 Route::post('/logout', [AuthController::class, 'destroy'])->middleware('auth')->name('logout');
@@ -58,6 +59,8 @@ Route::middleware(['auth', 'active'])->prefix('portal')->name('portal.')->group(
 });
 
 Route::middleware(['auth', 'master'])->prefix('master')->name('master.')->group(function () {
+    Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+    Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
     Route::get('/notifications', [NotificationOutboxController::class, 'index'])->name('notifications.index');
     Route::post('/notifications/{notification}/retry', [NotificationOutboxController::class, 'retry'])->whereNumber('notification')->name('notifications.retry');
     Route::get('/audit', [AuditEventController::class, 'index'])->name('audit.index');

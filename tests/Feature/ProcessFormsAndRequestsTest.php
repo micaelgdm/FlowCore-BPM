@@ -46,7 +46,7 @@ class ProcessFormsAndRequestsTest extends TestCase
             ->put(route('master.processes.form.update', $process), [
                 'fields' => [
                     ['key' => 'item_type', 'label' => 'Tipo do produto', 'type' => 'select', 'options' => "Revenda\nFabricado"],
-                    ['key' => 'tax_code', 'label' => 'NCM', 'type' => 'text', 'required' => '1', 'visible_when_field' => 'item_type', 'visible_when_value' => 'Revenda'],
+                    ['key' => 'tax_code', 'label' => 'NCM', 'type' => 'text', 'required' => '1', 'visible_when_mode' => 'hidden_unless', 'visible_when_match' => 'all', 'conditions' => [['field' => 'item_type', 'operator' => 'eq', 'value' => 'Revenda']]],
                     ['key' => 'spec_sheet', 'label' => 'Ficha técnica', 'type' => 'file'],
                 ],
             ])
@@ -55,7 +55,7 @@ class ProcessFormsAndRequestsTest extends TestCase
 
         $this->assertSame([
             ['key' => 'item_type', 'label' => 'Tipo do produto', 'type' => 'select', 'required' => false, 'options' => ['Revenda', 'Fabricado']],
-            ['key' => 'tax_code', 'label' => 'NCM', 'type' => 'text', 'required' => true, 'visible_when' => ['field' => 'item_type', 'equals' => 'Revenda']],
+            ['key' => 'tax_code', 'label' => 'NCM', 'type' => 'text', 'required' => true, 'visible_when' => ['mode' => 'hidden_unless', 'match' => 'all', 'conditions' => [['field' => 'item_type', 'operator' => 'eq', 'value' => 'Revenda']]]],
             ['key' => 'spec_sheet', 'label' => 'Ficha técnica', 'type' => 'file', 'required' => false],
         ], $process->fresh()->form_schema);
     }
@@ -113,6 +113,7 @@ class ProcessFormsAndRequestsTest extends TestCase
             ->assertHeader('content-disposition');
 
         $otherUser = User::factory()->create(['role' => 'requester', 'is_active' => true]);
+        $process->authorizedUsers()->attach($otherUser->id, ['can_view' => true, 'can_start' => false, 'can_approve' => false]);
         $this->actingAs($otherUser)
             ->get(route('portal.attachments.download', [$instance->uuid, $attachment['attachment_id']]))
             ->assertForbidden();
@@ -141,7 +142,8 @@ class ProcessFormsAndRequestsTest extends TestCase
 
         $this->actingAs($master)
             ->get(route('master.processes.form.edit', $process))
-            ->assertStatus(409);
+            ->assertOk()
+            ->assertSee('SOMENTE LEITURA');
 
         $this->put(route('master.processes.form.update', $process), [
             'fields' => [['key' => 'reason', 'label' => 'Motivo', 'type' => 'text']],
@@ -154,7 +156,7 @@ class ProcessFormsAndRequestsTest extends TestCase
         $requester = User::factory()->create(['role' => 'requester', 'is_active' => true]);
         $draft = $this->draftProcess($master);
         $published = $this->publishedProcess($master);
-        $published->authorizedUsers()->attach($requester->id);
+        $published->authorizedUsers()->attach($requester->id, ['can_view' => true, 'can_start' => true, 'can_approve' => false]);
 
         $this->actingAs($master)
             ->get(route('master.processes.form.edit', $draft))
@@ -173,7 +175,7 @@ class ProcessFormsAndRequestsTest extends TestCase
     {
         $requester = User::factory()->create(['role' => 'requester', 'is_active' => true]);
         $process = $this->publishedProcess(User::factory()->create(['role' => 'master', 'is_active' => true]));
-        $process->authorizedUsers()->attach($requester->id);
+        $process->authorizedUsers()->attach($requester->id, ['can_view' => true, 'can_start' => true, 'can_approve' => false]);
         $this->configureFlowable();
 
         Http::fake(function (Request $request) {
@@ -225,7 +227,7 @@ class ProcessFormsAndRequestsTest extends TestCase
     {
         $requester = User::factory()->create(['role' => 'requester', 'is_active' => true]);
         $process = $this->publishedProcess(User::factory()->create(['role' => 'master', 'is_active' => true]));
-        $process->authorizedUsers()->attach($requester->id);
+        $process->authorizedUsers()->attach($requester->id, ['can_view' => true, 'can_start' => true, 'can_approve' => false]);
         $this->configureFlowable();
         Http::fake(fn (Request $request) => str_contains($request->url(), 'runtime/process-instances?id=')
             ? Http::response(['total' => 1, 'data' => [['id' => 'flowable-instance-2']]])
@@ -244,7 +246,7 @@ class ProcessFormsAndRequestsTest extends TestCase
         $this->post(route('portal.processes.start.submit', $process), $data)->assertRedirect();
 
         $this->assertDatabaseCount('process_instances', 1);
-        $this->assertCount(5, Http::recorded());
+        $this->assertCount(6, Http::recorded());
     }
 
     public function test_unassigned_user_cannot_open_or_start_another_users_process(): void
@@ -261,7 +263,7 @@ class ProcessFormsAndRequestsTest extends TestCase
     {
         $requester = User::factory()->create(['role' => 'requester', 'is_active' => true]);
         $process = $this->publishedProcess(User::factory()->create(['role' => 'master', 'is_active' => true]));
-        $process->authorizedUsers()->attach($requester->id);
+        $process->authorizedUsers()->attach($requester->id, ['can_view' => true, 'can_start' => true, 'can_approve' => false]);
 
         $this->actingAs($requester)
             ->from(route('portal.processes.start', $process))
@@ -280,7 +282,7 @@ class ProcessFormsAndRequestsTest extends TestCase
     {
         $requester = User::factory()->create(['role' => 'requester', 'is_active' => true]);
         $process = $this->publishedProcess(User::factory()->create(['role' => 'master', 'is_active' => true]));
-        $process->authorizedUsers()->attach($requester->id);
+        $process->authorizedUsers()->attach($requester->id, ['can_view' => true, 'can_start' => true, 'can_approve' => false]);
         $this->configureFlowable();
 
         Http::fake(fn (Request $request) => str_contains($request->url(), 'runtime/process-instances?id=')
@@ -323,6 +325,7 @@ class ProcessFormsAndRequestsTest extends TestCase
         $process = ProcessDefinition::query()->create([
             'name' => 'Reembolso de despesas',
             'status' => 'published',
+            'is_active' => true,
             'bpmn_xml' => '<bpmn:definitions/>',
             'flowable_process_definition_id' => 'flowcore_process_1:1:deployment',
             'published_bpmn_hash' => hash('sha256', 'published'),

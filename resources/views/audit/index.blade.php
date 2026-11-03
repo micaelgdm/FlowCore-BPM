@@ -25,7 +25,7 @@
                         <article class="fc-audit-event">
                             <span class="fc-audit-marker" aria-hidden="true"></span>
                             <div class="fc-audit-event-main">
-                                <div class="fc-audit-event-heading"><strong>{{ match ($event->action) { 'process.version.published' => 'Versão publicada', 'process.version.activated' => 'Versão ativada', 'process.version.discarded' => 'Rascunho excluído', 'process.family.deleted' => 'Processo excluído', 'process.form.updated' => 'Formulário inicial alterado', 'process.tasks.updated' => 'Configuração das etapas alterada', 'process.access.updated' => 'Permissões de acesso alteradas', default => 'Alteração registrada' } }}</strong><time datetime="{{ $event->created_at->toIso8601String() }}">{{ $event->created_at->copy()->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i:s') }}</time></div>
+                                <div class="fc-audit-event-heading"><strong>{{ match ($event->action) { 'process.version.published' => 'Versão publicada', 'process.version.activated' => 'Versão ativada', 'process.version.discarded' => 'Rascunho excluído', 'process.family.deleted' => 'Processo excluído', 'process.form.updated' => 'Formulário inicial alterado', 'process.tasks.updated' => 'Configuração das etapas alterada', 'process.access.updated' => 'Permissões de acesso alteradas', 'report.requests.exported' => 'Relatório de solicitações exportado', default => 'Alteração registrada' } }}</strong><time datetime="{{ $event->created_at->toIso8601String() }}">{{ $event->created_at->copy()->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i:s') }}</time></div>
                                 <p><strong>{{ $event->subject }}</strong> · {{ $event->actor_name }}</p>
                                 @if ($event->action === 'process.version.activated' && filled($event->details['previous_version'] ?? null))
                                     <small>Versão anterior em uso: V{{ $event->details['previous_version'] }}</small>
@@ -41,6 +41,9 @@
                                 @endif
                                 @if ($event->action === 'process.access.updated')
                                     <small>Contas autorizadas: {{ count($event->details['permissions'] ?? []) }}</small>
+                                @endif
+                                @if ($event->action === 'report.requests.exported')
+                                    <small>Período: {{ $event->details['from'] ?? '—' }} a {{ $event->details['to'] ?? '—' }} · {{ number_format((int) ($event->details['record_count'] ?? 0), 0, ',', '.') }} solicitações</small>
                                 @endif
                             </div>
                         </article>
