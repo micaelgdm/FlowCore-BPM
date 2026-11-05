@@ -20,7 +20,7 @@
                     <h2>Uma nova senha para continuar.</h2>
                     <p>Crie uma senha segura para voltar a acompanhar seus processos e tarefas.</p>
                 </div>
-                <div class="fc-auth-brand-footer"><span class="fc-auth-brand-indicator"></span>Use pelo menos 12 caracteres</div>
+                <div class="fc-auth-brand-footer"><span class="fc-auth-brand-indicator"></span>Mínimo de 8 caracteres, com maiúscula, minúscula, número e símbolo</div>
             </section>
             <section class="fc-login-card" aria-labelledby="reset-title">
                 <span class="fc-auth-eyebrow fc-auth-form-eyebrow">NOVA SENHA</span>
@@ -34,10 +34,11 @@
                     <input type="hidden" name="token" value="{{ $token }}">
                     <label for="email">E-mail</label>
                     <input id="email" name="email" type="email" value="{{ old('email', $email) }}" autocomplete="email" required autofocus>
-                    <label for="password">Nova senha <span>(mínimo de 12 caracteres)</span></label>
-                    <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" required>
+                    <label for="password">Nova senha <span>(mínimo de 8 caracteres)</span></label>
+                    <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
                     <label for="password_confirmation">Confirme a nova senha</label>
-                    <input id="password_confirmation" name="password_confirmation" type="password" autocomplete="new-password" minlength="12" required>
+                    <input id="password_confirmation" name="password_confirmation" type="password" autocomplete="new-password" minlength="8" required>
+                    <small class="fc-password-policy-hint">Inclua uma letra maiúscula, uma minúscula, um número e um caractere especial.</small>
                     <button class="fc-button fc-button-primary" type="submit">Salvar nova senha <span aria-hidden="true">→</span></button>
                 </form>
                 <a class="fc-auth-back-link" href="{{ route('login') }}"><span aria-hidden="true">←</span> Voltar para entrar</a>

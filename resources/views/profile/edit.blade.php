@@ -16,15 +16,14 @@
                 @if ($user->role === 'master')
                     @include('shared.master-navigation')
                 @else
-                    <a class="fc-button fc-button-secondary" href="{{ route('portal.processes.index') }}">@include('shared.nav-icon', ['icon' => 'back'])Voltar</a>
-                    @include('shared.theme-toggle')
-                    <form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">@include('shared.nav-icon', ['icon' => 'logout'])Sair</button></form>
+                    @include('shared.portal-navigation')
                 @endif
             </div>
         </header>
         <main class="fc-list-content fc-profile-content">
             <section class="fc-list-heading"><div><span class="fc-eyebrow">DADOS DA CONTA</span><h2>Seu perfil</h2><p>Consulte seus dados de acesso e altere sua senha quando precisar.</p></div></section>
             @if (session('status')) <div class="fc-flash-success" role="status">{{ session('status') }}</div> @endif
+            @php($profileInitials = collect(preg_split('/\s+/', trim($user->name)))->filter()->take(2)->map(fn ($part) => mb_strtoupper(mb_substr($part, 0, 1)))->implode(''))
             <section class="fc-process-list fc-profile-card">
                 <div class="fc-list-title"><h3>Identificação</h3></div>
                 <div class="fc-profile-identity">
@@ -35,12 +34,39 @@
                 <p class="fc-profile-note">Nome de usuário e e-mail são administrados pelo Master e não podem ser alterados nesta página.</p>
             </section>
             <section class="fc-process-list fc-profile-card">
+                <div class="fc-list-title"><h3>Foto de perfil</h3></div>
+                <div class="fc-profile-photo-content">
+                    <div class="fc-profile-photo-preview" aria-label="Foto de perfil atual">
+                        @if ($user->profile_photo_path)
+                            <img src="{{ route('profile.photo') }}" alt="Foto de perfil de {{ $user->name }}">
+                        @else
+                            <span aria-hidden="true">{{ $profileInitials }}</span>
+                        @endif
+                    </div>
+                    <div class="fc-profile-photo-controls">
+                        <p>Envie uma imagem JPG, PNG ou WEBP de até 2 MB. A foto será visível apenas para você quando estiver conectado.</p>
+                        <form method="POST" action="{{ route('profile.photo.update') }}" enctype="multipart/form-data" class="fc-profile-photo-form">
+                            @csrf
+                            <label class="fc-form-field" for="profile-photo"><span>Escolher imagem</span><input id="profile-photo" type="file" name="photo" accept="image/jpeg,image/png,image/webp" required>@error('photo')<small class="fc-form-error">{{ $message }}</small>@enderror</label>
+                            <button class="fc-button fc-button-primary" type="submit">Salvar foto</button>
+                        </form>
+                        @if ($user->profile_photo_path)
+                            <form method="POST" action="{{ route('profile.photo.delete') }}" data-confirm="Remover sua foto de perfil? Suas iniciais serão exibidas novamente.">
+                                @csrf @method('DELETE')
+                                <button class="fc-button fc-button-secondary fc-profile-photo-remove" type="submit">Remover foto</button>
+                            </form>
+                        @endif
+                    </div>
+                </div>
+            </section>
+            <section class="fc-process-list fc-profile-card">
                 <div class="fc-list-title"><h3>Alterar senha</h3></div>
                 <form method="POST" action="{{ route('profile.password.update') }}" class="fc-profile-password-form">
                     @csrf @method('PUT')
                     <label class="fc-form-field"><span>Senha atual</span><input type="password" name="current_password" autocomplete="current-password" required>@error('current_password')<small class="fc-form-error">{{ $message }}</small>@enderror</label>
-                    <label class="fc-form-field"><span>Nova senha <small>(mínimo de 12 caracteres)</small></span><input type="password" name="password" autocomplete="new-password" minlength="12" required>@error('password')<small class="fc-form-error">{{ $message }}</small>@enderror</label>
-                    <label class="fc-form-field"><span>Confirme a nova senha</span><input type="password" name="password_confirmation" autocomplete="new-password" minlength="12" required></label>
+                    <label class="fc-form-field"><span>Nova senha <small>(mínimo de 8 caracteres)</small></span><input type="password" name="password" autocomplete="new-password" minlength="8" required>@error('password')<small class="fc-form-error">{{ $message }}</small>@enderror</label>
+                    <label class="fc-form-field"><span>Confirme a nova senha</span><input type="password" name="password_confirmation" autocomplete="new-password" minlength="8" required></label>
+                    <small class="fc-password-policy-hint">Inclua ao menos uma letra maiúscula, uma minúscula, um número e um caractere especial. A senha vence após 90 dias.</small>
                     <div class="fc-form-builder-actions"><button class="fc-button fc-button-primary" type="submit">Salvar nova senha</button></div>
                 </form>
             </section>

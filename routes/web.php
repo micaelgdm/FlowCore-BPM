@@ -41,13 +41,21 @@ Route::middleware('guest')->group(function () {
 Route::post('/logout', [AuthController::class, 'destroy'])->middleware('auth')->name('logout');
 
 Route::middleware(['auth', 'active'])->group(function () {
+    Route::get('/password/change-required', [ProfileController::class, 'requiredPasswordForm'])->name('password.required');
+    Route::put('/password/change-required', [ProfileController::class, 'forcePasswordUpdate'])->middleware('throttle:5,1')->name('password.required.update');
+});
+
+Route::middleware(['auth', 'active', 'password.current'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::get('/profile/photo', [ProfileController::class, 'photo'])->name('profile.photo');
+    Route::post('/profile/photo', [ProfileController::class, 'updatePhoto'])->middleware('throttle:10,1')->name('profile.photo.update');
+    Route::delete('/profile/photo', [ProfileController::class, 'deletePhoto'])->name('profile.photo.delete');
     Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password.update');
     Route::post('/profile/task-delegations', [UserTaskDelegationController::class, 'store'])->name('profile.task-delegations.store');
     Route::delete('/profile/task-delegations/{delegation}', [UserTaskDelegationController::class, 'cancel'])->whereNumber('delegation')->name('profile.task-delegations.cancel');
 });
 
-Route::middleware(['auth', 'active'])->prefix('portal')->name('portal.')->group(function () {
+Route::middleware(['auth', 'active', 'password.current'])->prefix('portal')->name('portal.')->group(function () {
     Route::get('/processes', [PortalProcessController::class, 'index'])->name('processes.index');
     Route::get('/requests', [PortalProcessController::class, 'requestsIndex'])->name('requests.index');
     Route::get('/processes/{process}/start', [PortalProcessController::class, 'startForm'])->name('processes.start');
@@ -58,7 +66,7 @@ Route::middleware(['auth', 'active'])->prefix('portal')->name('portal.')->group(
     Route::post('/tasks/{taskId}/approve', [ProcessTaskController::class, 'approve'])->name('tasks.approve');
 });
 
-Route::middleware(['auth', 'master'])->prefix('master')->name('master.')->group(function () {
+Route::middleware(['auth', 'master', 'password.current'])->prefix('master')->name('master.')->group(function () {
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
     Route::get('/notifications', [NotificationOutboxController::class, 'index'])->name('notifications.index');

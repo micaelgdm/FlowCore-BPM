@@ -13,7 +13,7 @@
         <header class="fc-header">
             <a class="fc-brand" href="{{ route('portal.processes.index') }}">@include('shared.brand-logo')</a>
             <div class="fc-process-name"><span class="fc-eyebrow">ÁREA DO USUÁRIO · {{ auth()->user()->role_label }}</span><h1>Minhas tarefas</h1></div>
-            <div class="fc-header-actions"><a class="fc-button fc-button-secondary" href="{{ route('portal.requests.index') }}">@include('shared.nav-icon', ['icon' => 'requests'])Minhas solicitações</a><a class="fc-button fc-button-secondary" href="{{ route('portal.processes.index') }}">@include('shared.nav-icon', ['icon' => 'processes'])Meus processos</a>@include('shared.profile-link')<form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">@include('shared.nav-icon', ['icon' => 'logout'])Sair</button></form></div>
+            <div class="fc-header-actions">@include('shared.portal-navigation')</div>
         </header>
         <main class="fc-list-content">
             <section class="fc-list-heading"><div><span class="fc-eyebrow">TAREFAS DOS SEUS GRUPOS</span><h2>Tarefas atribuídas a você</h2><p>Revise os dados da solicitação e registre uma justificativa antes de concluir a tarefa.</p></div></section>

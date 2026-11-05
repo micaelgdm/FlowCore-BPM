@@ -13,7 +13,7 @@
         <header class="fc-header">
             <a class="fc-brand" href="{{ route('portal.processes.index') }}">@include('shared.brand-logo')</a>
             <div class="fc-process-name"><span class="fc-eyebrow">ÁREA DO USUÁRIO · {{ auth()->user()->role_label }}</span><h1>Meus processos</h1></div>
-            <div class="fc-header-actions"><a class="fc-button fc-button-secondary fc-task-nav-link" href="{{ route('portal.tasks.index') }}" @if ($pendingTaskCount > 0) aria-label="Minhas tarefas, {{ $pendingTaskCount }} pendentes" @endif>@include('shared.nav-icon', ['icon' => 'tasks'])Minhas tarefas @if ($pendingTaskCount > 0)<span class="fc-task-nav-count" aria-hidden="true">{{ $pendingTaskCount > 99 ? '99+' : $pendingTaskCount }}</span>@endif</a><a class="fc-button fc-button-secondary" href="{{ route('portal.requests.index') }}">@include('shared.nav-icon', ['icon' => 'requests'])Minhas solicitações</a>@include('shared.profile-link')<form method="POST" action="{{ route('logout') }}">@csrf<button class="fc-button fc-button-secondary" type="submit">@include('shared.nav-icon', ['icon' => 'logout'])Sair</button></form></div>
+            <div class="fc-header-actions">@include('shared.portal-navigation')</div>
         </header>
         <main class="fc-list-content">
             <section class="fc-list-heading"><div><span class="fc-eyebrow">PROCESSOS DISPONÍVEIS</span><h2>Seu catálogo</h2><p>A lista contém somente processos publicados aos quais sua conta recebeu acesso.</p></div></section>

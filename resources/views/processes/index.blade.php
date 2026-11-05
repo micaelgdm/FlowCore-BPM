@@ -19,14 +19,15 @@
                 @include('shared.master-navigation')
             </div>
         </header>
-        <main class="fc-list-content">
-            <section class="fc-list-heading">
-                <div><span class="fc-eyebrow">DESENHO E CONFIGURAÇÃO</span><h2>Definições de processo</h2><p>Crie rascunhos BPMN e continue a edição quando precisar.</p></div>
+        <main class="fc-list-content fc-dashboard-content">
+            <section class="fc-list-heading fc-dashboard-heading">
+                <div><span class="fc-eyebrow">ÁREA MASTER</span><h2>Resumo operacional</h2><p>Acompanhe solicitações, prazos e produtividade em um só lugar.</p></div>
+                <a class="fc-button fc-button-secondary fc-dashboard-report-link" href="{{ route('master.reports.index') }}">@include('shared.nav-icon', ['icon' => 'reports'])Ver relatórios</a>
             </section>
             @if (session('status')) <div class="fc-flash-success" role="status">{{ session('status') }}</div> @endif
             @error('process') <div class="fc-login-error" role="alert">{{ $message }}</div> @enderror
             <section class="fc-metrics-section" aria-labelledby="fc-metrics-title">
-                <div class="fc-metrics-heading"><div><span class="fc-eyebrow">ACOMPANHAMENTO</span><h3 id="fc-metrics-title">Resumo operacional</h3></div><small>Solicitações e tarefas de todas as versões</small></div>
+                <div class="fc-dashboard-section-heading"><h3 id="fc-metrics-title">Indicadores</h3><span>Solicitações e tarefas de todas as versões</span></div>
                 <div class="fc-metrics-grid">
                     <article class="fc-metric-card"><span>Total de solicitações</span><strong>{{ number_format((int) ($requestMetrics->total_count ?? 0), 0, ',', '.') }}</strong><small>Registros iniciados no portal</small></article>
                     <article class="fc-metric-card is-running"><span>Em andamento</span><strong>{{ number_format((int) ($requestMetrics->running_count ?? 0), 0, ',', '.') }}</strong><small>Solicitações ainda abertas</small></article>
@@ -34,30 +35,53 @@
                     <article class="fc-metric-card is-pending"><span>Tarefas pendentes</span><strong>{{ $runtimeMetricsAvailable ? number_format((int) $pendingTaskCount, 0, ',', '.') : '—' }}</strong><small>{{ $runtimeMetricsAvailable ? 'Aguardando ação dos responsáveis' : 'Motor indisponível para consulta' }}</small></article>
                     <article class="fc-metric-card is-overdue"><span>Tarefas atrasadas</span><strong>{{ $runtimeMetricsAvailable ? number_format((int) $overdueTaskCount, 0, ',', '.') : '—' }}</strong><small>{{ $runtimeMetricsAvailable ? 'Com prazo configurado já vencido' : 'Motor indisponível para consulta' }}</small></article>
                 </div>
-                <div class="fc-metrics-table-wrap">
-                    <div class="fc-metrics-heading"><div><h4>Solicitações por processo</h4></div></div>
+            </section>
+            <section class="fc-dashboard-summary-grid" aria-label="Solicitações e pendências">
+                <div class="fc-metrics-table-wrap fc-dashboard-panel">
+                    <div class="fc-dashboard-panel-heading"><h3>Solicitações por processo</h3><span>Visão geral</span></div>
                     @if ($processMetrics->isEmpty())
-                        <p class="fc-metrics-empty">Os indicadores por processo aparecerão quando houver definições cadastradas.</p>
+                        <p class="fc-metrics-empty fc-dashboard-empty">Os indicadores por processo aparecerão quando houver definições cadastradas.</p>
                     @else
-                        <table class="fc-metrics-table">
-                            <thead><tr><th>Processo</th><th>Total</th><th>Em andamento</th><th>Concluídas</th></tr></thead>
-                            <tbody>
-                                @foreach ($processMetrics as $metric)
-                                    <tr><th scope="row"><span>{{ $metric->process_name }}</span><small>{{ $metric->active_version ? 'Em uso · V'.$metric->active_version : 'Sem versão publicada ativa' }}</small></th><td>{{ number_format((int) $metric->total_count, 0, ',', '.') }}</td><td>{{ number_format((int) $metric->running_count, 0, ',', '.') }}</td><td>{{ number_format((int) $metric->completed_count, 0, ',', '.') }}</td></tr>
-                                @endforeach
-                            </tbody>
-                        </table>
+                        <div class="fc-dashboard-table-scroll">
+                            <table class="fc-metrics-table fc-dashboard-process-table">
+                                <thead><tr><th>Processo</th><th>Total</th><th>Em andamento</th><th>Concluídas</th></tr></thead>
+                                <tbody>
+                                    @foreach ($processMetrics as $metric)
+                                        <tr><th scope="row"><span>{{ $metric->process_name }}</span><small>{{ $metric->active_version ? 'Em uso · V'.$metric->active_version : 'Sem versão publicada ativa' }}</small></th><td>{{ number_format((int) $metric->total_count, 0, ',', '.') }}</td><td>{{ number_format((int) $metric->running_count, 0, ',', '.') }}</td><td>{{ number_format((int) $metric->completed_count, 0, ',', '.') }}</td></tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                </div>
+                <div class="fc-metrics-table-wrap fc-dashboard-panel fc-dashboard-groups-panel">
+                    <div class="fc-dashboard-panel-heading"><h3>Pendências por grupo</h3><span>Fila atual</span></div>
+                    @if (! $runtimeMetricsAvailable)
+                        <p class="fc-metrics-empty fc-dashboard-empty">Conecte o motor Flowable para consultar as tarefas ativas.</p>
+                    @elseif ($pendingGroupMetrics->isEmpty())
+                        <p class="fc-metrics-empty fc-dashboard-empty">Não há tarefas ativas atribuídas a grupos no momento.</p>
+                    @else
+                        @php($maxGroupPending = max(1, (int) $pendingGroupMetrics->max('pending_count')))
+                        <div class="fc-group-pending-list">
+                            @foreach ($pendingGroupMetrics as $metric)
+                                @php($barWidth = max(5, (int) round(((int) $metric->pending_count / $maxGroupPending) * 100)))
+                                <div class="fc-group-pending-row">
+                                    <div class="fc-group-pending-heading"><strong>{{ $metric->group_name }}</strong><span>{{ number_format($metric->pending_count, 0, ',', '.') }} pendentes</span></div>
+                                    <div class="fc-group-pending-track" role="progressbar" aria-label="Tarefas pendentes de {{ $metric->group_name }}" aria-valuemin="0" aria-valuemax="{{ $maxGroupPending }}" aria-valuenow="{{ $metric->pending_count }}"><span style="width: {{ $barWidth }}%"></span></div>
+                                    <small class="fc-group-pending-overdue">{{ number_format($metric->overdue_count, 0, ',', '.') }} atrasadas</small>
+                                </div>
+                            @endforeach
+                        </div>
                     @endif
                 </div>
             </section>
             <section class="fc-metrics-section fc-operational-section" aria-labelledby="fc-operational-title">
-                <div class="fc-metrics-heading"><div><span class="fc-eyebrow">PRODUTIVIDADE</span><h3 id="fc-operational-title">Tempos por etapa e pendências</h3></div><small>Últimos 90 dias · durações começam a ser registradas nesta atualização</small></div>
-                <div class="fc-operational-metrics-grid">
-                    <div class="fc-metrics-table-wrap">
-                        <div class="fc-metrics-heading"><div><h4>Tempo médio por etapa</h4></div></div>
-                        @if ($stepMetrics->isEmpty())
-                            <p class="fc-metrics-empty">Os tempos aparecerão conforme novas tarefas forem concluídas com o motor Flowable.</p>
-                        @else
+                <div class="fc-dashboard-section-heading"><h3 id="fc-operational-title">Tempo médio por etapa</h3><span>Concluídas nos últimos 90 dias</span></div>
+                <div class="fc-metrics-table-wrap fc-dashboard-panel">
+                    @if ($stepMetrics->isEmpty())
+                        <p class="fc-metrics-empty fc-dashboard-empty">Os tempos aparecerão conforme novas tarefas forem concluídas com o motor Flowable.</p>
+                    @else
+                        <div class="fc-dashboard-table-scroll">
                             <table class="fc-metrics-table">
                                 <thead><tr><th>Processo e etapa</th><th>Média</th><th>Concluídas</th></tr></thead>
                                 <tbody>
@@ -70,26 +94,38 @@
                                     @endforeach
                                 </tbody>
                             </table>
-                        @endif
+                        </div>
+                    @endif
+            </section>
+            <section class="fc-metrics-table-wrap fc-dashboard-panel fc-recent-activity" aria-labelledby="fc-recent-activity-title">
+                <div class="fc-dashboard-panel-heading"><div><h3 id="fc-recent-activity-title">Atividades recentes</h3><span>Últimas solicitações iniciadas no portal</span></div></div>
+                @if ($recentRequests->isEmpty())
+                    <p class="fc-metrics-empty fc-dashboard-empty">As solicitações recentes aparecerão aqui quando alguém iniciar um processo.</p>
+                @else
+                    <div class="fc-dashboard-table-scroll">
+                        <table class="fc-metrics-table fc-activity-table">
+                            <thead><tr><th>Atividade</th><th>Processo</th><th>Solicitante</th><th>Status</th><th>Data</th></tr></thead>
+                            <tbody>
+                                @foreach ($recentRequests as $activity)
+                                    @php($activityStatus = match ($activity->status) {
+                                        'running' => ['label' => 'Em andamento', 'class' => 'is-running', 'activity' => 'Solicitação iniciada'],
+                                        'completed' => ['label' => 'Concluída', 'class' => 'is-completed', 'activity' => 'Solicitação concluída'],
+                                        'starting' => ['label' => 'Inicializando', 'class' => 'is-starting', 'activity' => 'Solicitação em inicialização'],
+                                        'failed' => ['label' => 'Falha ao iniciar', 'class' => 'is-failed', 'activity' => 'Falha ao iniciar solicitação'],
+                                        default => ['label' => 'Indisponível', 'class' => 'is-unknown', 'activity' => 'Solicitação registrada'],
+                                    })
+                                    <tr>
+                                        <th scope="row"><span>{{ $activityStatus['activity'] }}</span><small>{{ $activity->displayId() }}</small></th>
+                                        <td>{{ $activity->processDefinition?->name ?? 'Processo removido' }}</td>
+                                        <td>{{ $activity->starter?->name ?? 'Conta removida' }}</td>
+                                        <td><span @class(['fc-activity-status', $activityStatus['class']])>{{ $activityStatus['label'] }}</span></td>
+                                        <td><time datetime="{{ $activity->created_at->toIso8601String() }}">{{ $activity->created_at->copy()->setTimezone(config('app.display_timezone'))->format('d/m/Y H:i') }}</time></td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
                     </div>
-                    <div class="fc-metrics-table-wrap">
-                        <div class="fc-metrics-heading"><div><h4>Pendências por grupo</h4></div></div>
-                        @if (! $runtimeMetricsAvailable)
-                            <p class="fc-metrics-empty">Não foi possível consultar as tarefas ativas no Flowable. Os indicadores serão atualizados quando o motor estiver disponível.</p>
-                        @elseif ($pendingGroupMetrics->isEmpty())
-                            <p class="fc-metrics-empty">Não há tarefas ativas atribuídas a grupos no momento.</p>
-                        @else
-                            <table class="fc-metrics-table">
-                                <thead><tr><th>Grupo responsável</th><th>Pendentes</th><th>Atrasadas</th></tr></thead>
-                                <tbody>
-                                    @foreach ($pendingGroupMetrics as $metric)
-                                        <tr><th scope="row"><span>{{ $metric->group_name }}</span></th><td>{{ number_format($metric->pending_count, 0, ',', '.') }}</td><td>{{ number_format($metric->overdue_count, 0, ',', '.') }}</td></tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        @endif
-                    </div>
-                </div>
+                @endif
             </section>
             <section class="fc-create-card">
                 <h3>Novo processo</h3>

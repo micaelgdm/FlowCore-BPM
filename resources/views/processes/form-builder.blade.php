@@ -13,7 +13,7 @@
             <a class="fc-brand" href="{{ route('master.processes.index') }}">@include('shared.brand-logo')</a>
             <div class="fc-process-name"><span class="fc-eyebrow">{{ $readOnly ? 'PUBLICADO · SOMENTE LEITURA' : 'RASCUNHO' }} · V{{ $process->version }}</span><h1>{{ $process->name }}</h1></div>
             <div class="fc-header-actions">
-                <a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">@include('shared.nav-icon', ['icon' => 'editor'])Editor</a>
+                @include('shared.process-actions-menu', ['process' => $process, 'currentPage' => 'form'])
                 @include('shared.master-navigation')
             </div>
         </header>

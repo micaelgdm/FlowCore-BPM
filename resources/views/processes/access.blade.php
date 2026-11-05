@@ -14,7 +14,7 @@
             <a class="fc-brand" href="{{ route('master.processes.index') }}">@include('shared.brand-logo')</a>
             <div class="fc-process-name"><span class="fc-eyebrow">PERMISSÕES · V{{ $process->version }}</span><h1>{{ $process->name }}</h1></div>
             <div class="fc-header-actions">
-                <a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">@include('shared.nav-icon', ['icon' => 'back'])Voltar ao processo</a>
+                @include('shared.process-actions-menu', ['process' => $process, 'currentPage' => 'access'])
                 @include('shared.master-navigation')
             </div>
         </header>

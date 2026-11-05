@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\UserRole;
 use App\Models\AuditEvent;
 use App\Models\User;
+use App\Support\PasswordPolicy;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,8 +28,9 @@ class UserController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'role' => ['required', Rule::enum(UserRole::class)],
-            'password' => ['required', 'string', 'min:12', 'confirmed'],
-        ]);
+            'password' => PasswordPolicy::rules(),
+            'must_change_password' => ['sometimes', 'boolean'],
+        ], PasswordPolicy::messages());
 
         DB::transaction(function () use ($request, $data): void {
             $user = User::query()->create([
@@ -37,6 +39,8 @@ class UserController extends Controller
                 'role' => $data['role'],
                 'password' => $data['password'],
                 'is_active' => true,
+                'must_change_password' => (bool) ($data['must_change_password'] ?? false),
+                'password_changed_at' => now(),
             ]);
 
             AuditEvent::query()->create([
@@ -44,7 +48,11 @@ class UserController extends Controller
                 'actor_name' => mb_substr($request->user()->name, 0, 120),
                 'action' => 'user.created',
                 'subject' => 'Conta de usuário #'.$user->id,
-                'details' => ['role' => $user->role, 'is_active' => $user->is_active],
+                'details' => [
+                    'role' => $user->role,
+                    'is_active' => $user->is_active,
+                    'must_change_password' => $user->must_change_password,
+                ],
             ]);
         });
 
@@ -58,8 +66,9 @@ class UserController extends Controller
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'role' => ['required', Rule::enum(UserRole::class)],
             'is_active' => ['required', 'boolean'],
-            'password' => ['nullable', 'string', 'min:12', 'confirmed'],
-        ]);
+            'password' => PasswordPolicy::rules('nullable'),
+            'must_change_password' => ['sometimes', 'boolean'],
+        ], PasswordPolicy::messages());
 
         if ($user->is($request->user())) {
             return back()->withErrors(['user' => 'Não é possível alterar o próprio perfil ou desativar a própria conta.']);
@@ -75,14 +84,17 @@ class UserController extends Controller
         }
 
         $password = $data['password'] ?? null;
+        $mustChangePassword = (bool) ($data['must_change_password'] ?? false);
         unset($data['password']);
+        unset($data['must_change_password']);
         $data['email'] = mb_strtolower($data['email']);
         $previous = ['role' => $user->role, 'is_active' => $user->is_active];
 
-        DB::transaction(function () use ($request, $user, $data, $password, $previous): void {
+        DB::transaction(function () use ($request, $user, $data, $password, $mustChangePassword, $previous): void {
             $user->forceFill($data);
             if (filled($password)) {
                 $user->password = $password;
+                $user->must_change_password = $mustChangePassword;
             }
             $user->save();
 
@@ -94,7 +106,7 @@ class UserController extends Controller
                 'subject' => 'Conta de usuário #'.$user->id,
                 'details' => [
                     'previous' => $previous,
-                    'current' => $next,
+                    'current' => [...$next, 'must_change_password' => $user->must_change_password],
                     'password_reset' => filled($password),
                 ],
             ]);

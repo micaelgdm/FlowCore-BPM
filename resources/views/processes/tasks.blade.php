@@ -12,7 +12,7 @@
         <header class="fc-header">
             <a class="fc-brand" href="{{ route('master.processes.index') }}">@include('shared.brand-logo')</a>
             <div class="fc-process-name"><span class="fc-eyebrow">{{ $readOnly ? 'PUBLICADO · SOMENTE LEITURA' : 'RASCUNHO' }} · V{{ $process->version }}</span><h1>{{ $process->name }}</h1></div>
-            <div class="fc-header-actions"><a class="fc-button fc-button-secondary" href="{{ route('master.processes.editor', $process) }}">@include('shared.nav-icon', ['icon' => 'editor'])Editor</a><a class="fc-button fc-button-secondary" href="{{ route('master.processes.form.edit', $process) }}">@include('shared.nav-icon', ['icon' => 'form'])Formulário</a>@include('shared.master-navigation')</div>
+            <div class="fc-header-actions">@include('shared.process-actions-menu', ['process' => $process, 'currentPage' => 'tasks'])@include('shared.master-navigation')</div>
         </header>
         <main class="fc-list-content">
             <section class="fc-list-heading"><div><span class="fc-eyebrow">{{ $readOnly ? 'CONSULTA DA VERSÃO PUBLICADA' : 'ROTEAMENTO DAS TAREFAS' }}</span><h2>Responsável por etapa</h2><p>{{ $readOnly ? 'Consulte os responsáveis, formulários e prazos definidos nesta publicação. Para alterar a configuração, crie uma nova versão.' : 'Direcione cada tarefa humana para um grupo ou para uma pessoa específica. A configuração será gravada no BPMN ao publicar.' }}</p></div></section>

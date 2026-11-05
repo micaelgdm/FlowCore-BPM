@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Support\PasswordPolicy;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -36,11 +37,23 @@ class AuthController extends Controller
 
         $request->session()->regenerate();
 
-        if ($request->user()->role !== 'master') {
-            return redirect()->route('portal.processes.index');
+        $user = $request->user();
+        if ($user->passwordMustBeChanged()) {
+            return redirect()->route('password.required');
         }
 
-        return redirect()->intended(route('master.processes.index'));
+        $expiresAt = $user->passwordExpiresAt();
+        $destination = $user->role !== 'master'
+            ? redirect()->route('portal.processes.index')
+            : redirect()->intended(route('master.processes.index'));
+
+        if ($expiresAt && $expiresAt->lte(now()->addDays(7))) {
+            $daysLeft = max(1, (int) ceil((now()->diffInSeconds($expiresAt, false)) / 86400));
+            $dayLabel = $daysLeft === 1 ? 'dia' : 'dias';
+            $destination->with('password_expiry_warning', "Sua senha expira em {$daysLeft} {$dayLabel}. Altere-a em Meu perfil para evitar o bloqueio do acesso.");
+        }
+
+        return $destination;
     }
 
     public function requestPasswordReset(): View
@@ -78,11 +91,8 @@ class AuthController extends Controller
         $data = $request->validate([
             'token' => ['required', 'string'],
             'email' => ['required', 'email', 'max:255'],
-            'password' => ['required', 'string', 'min:12', 'confirmed'],
-        ], [
-            'password.min' => 'A senha deve ter pelo menos 12 caracteres.',
-            'password.confirmed' => 'A confirmação da senha não confere.',
-        ]);
+            'password' => PasswordPolicy::rules(),
+        ], PasswordPolicy::messages());
 
         $status = Password::reset(
             $data,
@@ -90,6 +100,8 @@ class AuthController extends Controller
                 $user->forceFill([
                     'password' => Hash::make($password),
                     'remember_token' => Str::random(60),
+                    'must_change_password' => false,
+                    'password_changed_at' => now(),
                 ])->save();
 
                 event(new PasswordReset($user));

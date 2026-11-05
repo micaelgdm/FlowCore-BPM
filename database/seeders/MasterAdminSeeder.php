@@ -3,7 +3,9 @@
 namespace Database\Seeders;
 
 use App\Models\User;
+use App\Support\PasswordPolicy;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Validator;
 use RuntimeException;
 
 class MasterAdminSeeder extends Seeder
@@ -16,6 +18,10 @@ class MasterAdminSeeder extends Seeder
         if (! $email || ! $password) {
             throw new RuntimeException('Configure FLOWCORE_MASTER_EMAIL e FLOWCORE_MASTER_PASSWORD no .env local.');
         }
+
+        Validator::make(['password' => $password], [
+            'password' => PasswordPolicy::rules(),
+        ], PasswordPolicy::messages())->validate();
 
         User::updateOrCreate(
             ['email' => $email],

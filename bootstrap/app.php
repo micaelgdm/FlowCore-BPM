@@ -6,6 +6,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use App\Http\Middleware\RequireMaster;
 use App\Http\Middleware\RequireActiveUser;
+use App\Http\Middleware\RequireCurrentPassword;
 use App\Http\Middleware\SecurityHeaders;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -19,6 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'master' => RequireMaster::class,
             'active' => RequireActiveUser::class,
+            'password.current' => RequireCurrentPassword::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

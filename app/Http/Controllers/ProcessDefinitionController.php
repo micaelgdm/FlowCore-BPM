@@ -50,6 +50,12 @@ class ProcessDefinitionController extends Controller
             ->orderBy('process_name')
             ->get();
 
+        $recentRequests = ProcessInstance::query()
+            ->with(['processDefinition:id,name,version', 'starter:id,name'])
+            ->latest('created_at')
+            ->limit(6)
+            ->get();
+
         $stepRows = DB::table('process_task_decisions as decisions')
             ->join('process_instances as instances', 'instances.id', '=', 'decisions.process_instance_id')
             ->join('process_definitions as definitions', 'definitions.id', '=', 'instances.process_definition_id')
@@ -154,6 +160,7 @@ class ProcessDefinitionController extends Controller
             'currentPublishedByFamily' => $currentPublishedByFamily,
             'requestMetrics' => $requestMetrics,
             'processMetrics' => $processMetrics,
+            'recentRequests' => $recentRequests,
             'stepMetrics' => $stepMetrics,
             'pendingGroupMetrics' => $pendingGroupMetrics,
             'pendingTaskCount' => $pendingTaskCount,

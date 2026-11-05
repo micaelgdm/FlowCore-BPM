@@ -1,3 +1,4 @@
+@include('shared.password-expiry-warning')
 <a class="fc-button fc-button-secondary" href="{{ route('master.processes.index') }}">@include('shared.nav-icon', ['icon' => 'processes'])Processos</a>
 <details class="fc-nav-dropdown">
     <summary class="fc-button fc-button-secondary">@include('shared.nav-icon', ['icon' => 'users'])Administração<span class="fc-nav-chevron" aria-hidden="true"></span></summary>
